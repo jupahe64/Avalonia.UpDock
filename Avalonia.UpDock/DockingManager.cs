@@ -61,17 +61,16 @@ public class DockingManager
     private void TabControl_DraggedOutTab(object? sender, PointerEventArgs e,
         DockingTabControl.TabItemRef itemRef, Point offset)
     {
-        var tabItem = ((DockingTabControl)sender!).DetachTabItem(itemRef);
+        var tabControl = (DockingTabControl)sender!;
+        var tabItem = tabControl.DetachTabItem(itemRef);
 
         var window = new DockTabWindow(tabItem)
         {
-            Width = 400,
-            Height = 400
+            Width = tabControl.Bounds.Width,
+            Height = tabControl.Bounds.Height,
+            SystemDecorations = SystemDecorations.None,
+            Position = _hostWindow.PointToScreen(e.GetPosition(_hostWindow) + offset)
         };
-
-        window.SystemDecorations = SystemDecorations.None;
-
-        window.Position = _hostWindow.PointToScreen(e.GetPosition(_hostWindow) + offset);
 
         window.Show(_hostWindow);
         _draggedWindow = window;
@@ -186,7 +185,7 @@ public class DockingManager
             _tabItem.PointerMoved -= TabItem_PointerMoved;
             _tabItem.PointerReleased -= TabItem_PointerReleased;
 
-            _tabItem.Background = _tabBackground;
+            _tabItem.Background = _tabItemBackground;
 
             return _tabItem;
         }
