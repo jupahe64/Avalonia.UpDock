@@ -3,6 +3,9 @@ nothing much...
 
 *...except the best Docking library you'll ever use or alteast it will be.*
 
+![image](https://github.com/jupahe64/Avalonia.UpDock/assets/33004544/3eac7d0c-4220-4b9f-9dd4-461b1c634cd4)
+
+
 ## Why?
 Because the two other Dock libraries that exists either have on outdated style or just don't work reliably.  
 This library aims to work with any style, theme and whatnot by simply using or slightly extending the functionality of existing controls and hocking into a few UI events and ItemTemplates.  
@@ -30,6 +33,53 @@ To use the DockingManager you need to have a docking host control that fits the 
 ### An Example
 
 MainWindow.axaml
-```cs
+```xml
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="MyNamespace.MainWindow"
+        Title="UpDock Testing"
+		xmlns:up="clr-namespace:Avalonia.UpDock.Controls;assembly=Avalonia.UpDock">
 
+    <up:SplitPanel Name="DockingHost" Fractions="1, 1" Orientation="Horizontal">
+        <up:DockingTabControl>
+            <TabItem Header="Tab A">
+                <TextBlock Margin="5">Content</TextBlock>
+            </TabItem>
+        </up:DockingTabControl>
+        <up:DockingTabControl>
+            <TabItem Header="Tab B">
+                <TextBlock Margin="5">More content</TextBlock>
+            </TabItem>
+            <TabItem Header="Tab C">
+                <TextBlock Margin="5">Even more content</TextBlock>
+            </TabItem>
+        </up:DockingTabControl>
+    </up:SplitPanel>
+</Window>
+```
+MainWindow.axaml.cs
+```cs
+namespace MyNamespace;
+
+public partial class MainWindow : Window
+{
+    private DockingManager? _dockingManager;
+
+    public MainWindow()
+    {
+        InitializeComponent(true, true);
+    }
+
+    protected override void OnLoaded(RoutedEventArgs e)
+    {
+        base.OnLoaded(e);
+        if (Design.IsDesignMode)
+            return;
+
+        _dockingManager = new DockingManager(this, DockingHost);
+    }
+}
 ```
