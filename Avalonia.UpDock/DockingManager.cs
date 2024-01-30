@@ -158,122 +158,153 @@ public class DockingManager
             topLeft.X <= hitPoint.X && hitPoint.X <= bottomRight.X &&
             topLeft.Y <= hitPoint.Y && hitPoint.Y <= bottomRight.Y;
     }
+}
 
-    private class DockTabWindow : Window
+internal class DockTabWindow : Window
+{
+    public Size TabSize { get; private set; }
+    public object? TabHeader => _tabItem.Header;
+
+    private record DragInfo(Point Offset);
+
+    private IBrush? _tabBackground = null;
+    private IBrush? _tabItemBackground = null;
+    private IPen _borderPen = new Pen(Brushes.Gray, 1);
+    private TabItem _tabItem;
+    private TabControl _tabControl;
+
+    private DragInfo? _dragInfo = null;
+
+    public event EventHandler<PointerEventArgs>? Dragging;
+    public event EventHandler<PointerEventArgs>? DragEnd;
+
+    public TabItem DetachTabItem()
     {
-        public Size TabSize { get; private set; }
-        public object? TabHeader => _tabItem.Header;
+        _tabControl.Items.Clear();
 
-        private record DragInfo(Point Offset);
+        _tabItem.PointerPressed -= TabItem_PointerPressed;
+        _tabItem.PointerMoved -= TabItem_PointerMoved;
+        _tabItem.PointerReleased -= TabItem_PointerReleased;
 
-        private IBrush? _tabBackground = null;
-        private IBrush? _tabItemBackground = null;
-        private IPen _borderPen = new Pen(Brushes.Gray, 1);
-        private TabItem _tabItem;
-        private TabControl _tabControl;
+        if (_tabItem is ClosableTabItem closable)
+            closable.Closed -= TabItem_Closed;
 
-        private DragInfo? _dragInfo = null;
+        _tabItem.Background = _tabItemBackground;
 
-        public event EventHandler<PointerEventArgs>? Dragging;
-        public event EventHandler<PointerEventArgs>? DragEnd;
+        return _tabItem;
+    }
 
-        public TabItem DetachTabItem()
+    public DockTabWindow(TabItem tabItem)
+    {
+        _tabItem = tabItem;
+
+        _tabItem.PointerPressed += TabItem_PointerPressed;
+        _tabItem.PointerMoved += TabItem_PointerMoved;
+        _tabItem.PointerReleased += TabItem_PointerReleased;
+
+        if (_tabItem is ClosableTabItem closable)
+            closable.Closed += TabItem_Closed;
+
+        _tabItemBackground = tabItem.Background;
+
+
+        _tabControl = new TabControl()
         {
-            _tabControl.Items.Clear();
+            Background = Brushes.Transparent, //just to be save
+        };
+        _tabControl.Items.Add(tabItem);
 
-            _tabItem.PointerPressed -= TabItem_PointerPressed;
-            _tabItem.PointerMoved -= TabItem_PointerMoved;
-            _tabItem.PointerReleased -= TabItem_PointerReleased;
+        Content = _tabControl;
+    }
 
-            _tabItem.Background = _tabItemBackground;
+    private bool _isTabItemClosed = false;
 
-            return _tabItem;
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+
+        if (_tabItem is not ClosableTabItem closable)
+            return;
+
+        if (!_tabControl.Items.Contains(closable))
+            return; //the tabItem is not part of the window anymore
+
+        if (!_isTabItemClosed)
+        {
+            e.Cancel = true;
+            closable.Close();
         }
+    }
 
-        public DockTabWindow(TabItem tabItem)
+    private void TabItem_Closed(object? sender, RoutedEventArgs e)
+    {
+        _isTabItemClosed = true;
+        Close();
+    }
+
+    private void TabItem_PointerPressed(object? sender, PointerEventArgs e) => OnDragStart(e);
+    private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
+    private void TabItem_PointerReleased(object? sender, PointerEventArgs e) => OnDragEnd(e);
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property != SystemDecorationsProperty || _tabBackground == null)
+            return;
+
+        if (SystemDecorations == SystemDecorations.None)
         {
-            _tabItem = tabItem;
-
-            _tabItem.PointerPressed += TabItem_PointerPressed;
-            _tabItem.PointerMoved += TabItem_PointerMoved;
-            _tabItem.PointerReleased += TabItem_PointerReleased;
-
-            _tabItemBackground = tabItem.Background;
-
-
-            _tabControl = new TabControl()
-            {
-                Background = Brushes.Transparent, //just to be save
-            };
-            _tabControl.Items.Add(tabItem);
-
-            Content = _tabControl;
-        }
-
-        private void TabItem_PointerPressed(object? sender, PointerEventArgs e) => OnDragStart(e);
-        private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
-        private void TabItem_PointerReleased(object? sender, PointerEventArgs e) => OnDragEnd(e);
-
-        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-        {
-            base.OnPropertyChanged(change);
-            if (change.Property != SystemDecorationsProperty || _tabBackground == null)
-                return;
-
-            if (SystemDecorations == SystemDecorations.None)
-            {
-                Background = null;
-            }
-            else
-                Background = _tabBackground;
-        }
-
-        protected override void OnLoaded(RoutedEventArgs e)
-        {
-            base.OnLoaded(e);
-            _tabBackground = Background;
-            _tabItem.Background = Background;
             Background = null;
-            InvalidateVisual();
         }
+        else
+            Background = _tabBackground;
+    }
 
-        public override void Render(DrawingContext context)
-        {
-            Point topLeft = _tabItem.TranslatePoint(new Point(0, 0), this)!.Value;
-            Point bottomRight = _tabItem.TranslatePoint(new Point(_tabItem.Bounds.Width, _tabItem.Bounds.Height), this)!.Value;
+    protected override void OnLoaded(RoutedEventArgs e)
+    {
+        base.OnLoaded(e);
+        _tabBackground = Background;
+        _tabItem.Background = Background;
+        Background = null;
+        InvalidateVisual();
+    }
 
-            var rect = Bounds.WithY(bottomRight.Y).WithHeight(Bounds.Height - bottomRight.Y);
+    public override void Render(DrawingContext context)
+    {
+        Point topLeft = _tabItem.TranslatePoint(new Point(0, 0), this)!.Value;
+        Point bottomRight = _tabItem.TranslatePoint(new Point(_tabItem.Bounds.Width, _tabItem.Bounds.Height), this)!.Value;
 
-            //probably fine
-            TabSize = rect.Size;
+        var rect = Bounds.WithY(bottomRight.Y).WithHeight(Bounds.Height - bottomRight.Y);
 
-            context.FillRectangle(_tabBackground!, rect);
-            context.DrawRectangle(_borderPen, rect);
-            base.Render(context);
-        }
+        //probably fine
+        TabSize = rect.Size;
 
-        public void OnDragStart(PointerEventArgs e)
-        {
-            SystemDecorations = SystemDecorations.None;
-            _dragInfo = new(e.GetPosition(this));
-        }
+        context.FillRectangle(_tabBackground!, rect);
+        context.DrawRectangle(_borderPen, rect);
+        base.Render(context);
+    }
 
-        public void OnDragEnd(PointerEventArgs e)
-        {
-            _dragInfo = null;
-            DragEnd?.Invoke(this, e);
-            SystemDecorations = SystemDecorations.Full;
-        }
+    public void OnDragStart(PointerEventArgs e)
+    {
+        SystemDecorations = SystemDecorations.None;
+        _dragInfo = new(e.GetPosition(this));
+    }
 
-        public void OnDragging(PointerEventArgs e)
-        {
-            if (_dragInfo == null)
-                return;
+    public void OnDragEnd(PointerEventArgs e)
+    {
+        _dragInfo = null;
+        DragEnd?.Invoke(this, e);
+        SystemDecorations = SystemDecorations.Full;
+    }
 
-            Point offset = _dragInfo.Offset;
+    public void OnDragging(PointerEventArgs e)
+    {
+        if (_dragInfo == null)
+            return;
 
-            Position = this.PointToScreen(e.GetPosition(this) - offset);
-            Dragging?.Invoke(this, e);
-        }
+        Point offset = _dragInfo.Offset;
+
+        Position = this.PointToScreen(e.GetPosition(this) - offset);
+        Dragging?.Invoke(this, e);
     }
 }

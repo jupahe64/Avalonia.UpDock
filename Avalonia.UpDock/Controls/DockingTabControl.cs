@@ -119,6 +119,9 @@ public class DockingTabControl : TabControl
     { get => GetValue(DockIndicatorFieldStrokeThicknessProperty); set => SetValue(DockIndicatorFieldStrokeThicknessProperty, value); }
     #endregion
 
+    public delegate void DraggedOutEventHandler(object? sender, PointerEventArgs e, TabItemRef itemRef, Point offset);
+
+    public event DraggedOutEventHandler? DraggedOutTab;
 
 
     private IPen? _dockIndicatorStrokePen = new Pen(
@@ -130,7 +133,7 @@ public class DockingTabControl : TabControl
 
     private (Size dropTabSize, DropTarget dropTarget)? _draggedForeignTabForDrop = null;
 
-    private TabItem _tabDropIndicator = new()
+    private readonly TabItem _tabDropIndicator = new()
     {
         Background = DockIndicatorFieldHoveredFillProperty.GetDefaultValue(typeof(DockingTabControl))
     };
@@ -143,13 +146,28 @@ public class DockingTabControl : TabControl
     public DockingTabControl()
     {
         IsHitTestVisible = true;
+        Items.CollectionChanged += Items_CollectionChanged;
     }
 
-    public delegate void DraggedOutEventHandler(object? sender, PointerEventArgs e, TabItemRef itemRef, Point offset);
+    private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.OldItems != null)
+        {
+            foreach (var item in e.OldItems.OfType<ClosableTabItem>())
+                item.Closed -= Item_Closed;
+        }
+        if (e.NewItems != null)
+        {
+            foreach (var item in e.NewItems.OfType<ClosableTabItem>())
+                item.Closed += Item_Closed;
+        }
+    }
 
-    public event DraggedOutEventHandler? DraggedOutTab;
-
-    
+    private void Item_Closed(object? sender, Interactivity.RoutedEventArgs e)
+    {
+        var closableTabItem = (ClosableTabItem)sender!;
+        Items.Remove(closableTabItem);
+    }
 
     public TabItem DetachTabItem(TabItemRef tabItemRef)
     {

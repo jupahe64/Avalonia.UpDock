@@ -7,6 +7,15 @@
         Title="UpDock Testing"
 		xmlns:up="clr-namespace:Avalonia.UpDock.Controls;assembly=Avalonia.UpDock">
 
+	<Window.Resources>
+		<DataTemplate DataType="x:String" x:Key="TabTemplate">
+			<StackPanel Orientation="Horizontal">
+				<Ellipse Width="10" Height="10" Fill="Green"/>
+				<TextBlock Text="{Binding}" />
+			</StackPanel>
+		</DataTemplate>
+	</Window.Resources>
+	
 	<DockPanel>
 		<Menu DockPanel.Dock="Top">
 			<MenuItem Header="File">
@@ -15,28 +24,46 @@
 		</Menu>
 		<up:SplitPanel Name="DockingHost" Fractions="1, 1, 2" Orientation="Horizontal">
 			<up:DockingTabControl>
-
-				<TabItem Header="Tab 1.1">
-					<TextBlock Margin="5">This is tab 1.1 content</TextBlock>
-				</TabItem>
+				<up:ClosableTabItem Header="Tab 1.1" HeaderTemplate="{DynamicResource TabTemplate}">
+					<StackPanel>
+						<TextBlock Text="This is tab 1.1 content" />
+					</StackPanel>
+				</up:ClosableTabItem>
 			</up:DockingTabControl>
 			<up:DockingTabControl>
-				<TabItem Header="Tab 2.1">
-					<TextBlock Margin="5">This is tab 2.1 content</TextBlock>
-				</TabItem>
-				<TabItem Header="Tab 2.2">
+				<up:ClosableTabItem Closing="UnclosableTab_Closing" Header="Tab 2.1 (unclosable)" HeaderTemplate="{DynamicResource TabTemplate}" >
+					<StackPanel Margin="5">
+						<TextBlock Text="This is tab 2.1 content" />
+						<TextBlock Opacity="0.5">
+							This tab will <Span FontWeight="Bold">refuse</Span> to close
+						</TextBlock>
+					</StackPanel>
+				</up:ClosableTabItem>
+				<up:ClosableTabItem Header="Tab 2.2" HeaderTemplate="{DynamicResource TabTemplate}">
 					<TextBlock Margin="5">This is tab 2.2 content</TextBlock>
-				</TabItem>
+				</up:ClosableTabItem>
 			</up:DockingTabControl>
 			<up:DockingTabControl>
-				<TabItem Header="Tab 3.1">
-					<TextBlock Margin="5">This is tab 3.1 content</TextBlock>
-				</TabItem>
+				<up:ClosableTabItem Header="Tab 3.1">
+					<StackPanel Margin="5">
+						<TextBlock Text="This is tab 3.1 content" />
+					</StackPanel>
+				</up:ClosableTabItem>
 				<TabItem Header="Tab 3.2">
-					<TextBlock Margin="5">This is tab 3.2 content</TextBlock>
+					<StackPanel Margin="5" Spacing="5">
+						<TextBlock Text="This is tab 3.2 content" />
+						<TextBlock Opacity="0.5">
+							This tab is <Span FontWeight="Bold">not</Span> closable
+						</TextBlock>
+					</StackPanel>
 				</TabItem>
 				<TabItem Header="Tab 3.3">
-					<TextBlock Margin="5">This is tab 3.3 content</TextBlock>
+					<StackPanel Margin="5" Spacing="5">
+						<TextBlock Text="This is tab 3.3 content" />
+						<TextBlock Opacity="0.5">
+							This tab is <Span FontWeight="Bold">not</Span> closable
+						</TextBlock>
+					</StackPanel>
 				</TabItem>
 			</up:DockingTabControl>
 
