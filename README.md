@@ -19,7 +19,7 @@ This should in theory also make this library future proof.
 
 ## Features
 - Rearrange Tabs
-- Close Tabs `TODO`
+- Close Tabs
 - Drag Tab out of TabControl to create a new floating window
 - Drag Tab into another TabControl, that's part of the same docking host (DockingManager), to add it as a tab
 - Drag Tab into another TabControl to create a new split and Dock it there `TODO`
