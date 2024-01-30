@@ -55,14 +55,13 @@ public class DockingManager
 
     private void SetupTabControlForDocking(DockingTabControl tabControl)
     {
-        tabControl.DraggedOutTab += TabControl_DraggedOutTab;
+        tabControl.RegisterDraggedOutTabHanlder(TabControl_DraggedOutTab);
     }
 
     private void TabControl_DraggedOutTab(object? sender, PointerEventArgs e,
-        DockingTabControl.TabItemRef itemRef, Point offset)
+        TabItem tabItem, Point offset)
     {
         var tabControl = (DockingTabControl)sender!;
-        var tabItem = tabControl.DetachTabItem(itemRef);
 
         var window = new DockTabWindow(tabItem)
         {

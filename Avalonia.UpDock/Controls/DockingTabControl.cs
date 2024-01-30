@@ -11,19 +11,12 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
+using static Avalonia.UpDock.Controls.DockingTabControl;
 
 namespace Avalonia.UpDock.Controls;
 
 public class DockingTabControl : TabControl
 {
-    /// <summary>
-    /// Pass this to <see cref="DetachTabItem(TabItemRef)"/> to get the actual TabItem detached from the Logical tree
-    /// </summary>
-    public struct TabItemRef(TabItem item)
-    {
-        internal readonly TabItem Item => item;
-    }
-
     #region DropTarget "enum"
     public struct DropTarget : IEquatable<DropTarget>
     {
@@ -119,9 +112,21 @@ public class DockingTabControl : TabControl
     { get => GetValue(DockIndicatorFieldStrokeThicknessProperty); set => SetValue(DockIndicatorFieldStrokeThicknessProperty, value); }
     #endregion
 
-    public delegate void DraggedOutEventHandler(object? sender, PointerEventArgs e, TabItemRef itemRef, Point offset);
+    public delegate void DraggedOutTabHandler(object? sender, PointerEventArgs e, TabItem itemRef, Point offset);
 
-    public event DraggedOutEventHandler? DraggedOutTab;
+    public void RegisterDraggedOutTabHanlder(DraggedOutTabHandler handler)
+    {
+        if (_draggedOutTabHandler != null)
+            throw new InvalidOperationException(
+                $"There is already a {nameof(DraggedOutTabHandler)} registered with this {nameof(DockingTabControl)}\n" +
+                $"You must call {nameof(UnregisterDraggedOutTabHanlder)} first");
+
+        _draggedOutTabHandler = handler;
+    }
+
+    public void UnregisterDraggedOutTabHanlder() => _draggedOutTabHandler = null;
+
+    private DraggedOutTabHandler? _draggedOutTabHandler;
 
 
     private IPen? _dockIndicatorStrokePen = new Pen(
@@ -167,17 +172,6 @@ public class DockingTabControl : TabControl
     {
         var closableTabItem = (ClosableTabItem)sender!;
         Items.Remove(closableTabItem);
-    }
-
-    public TabItem DetachTabItem(TabItemRef tabItemRef)
-    {
-        if (!Items.Remove(tabItemRef.Item))
-            throw new InvalidOperationException("The given TabItem is not in Items");
-
-        if (tabItemRef.Item == _draggedTab?.tabItem)
-            _draggedTab = null;
-
-        return tabItemRef.Item;
     }
 
     protected override Type StyleKeyOverride => typeof(TabControl);
@@ -272,7 +266,13 @@ public class DockingTabControl : TabControl
     {
         var (tabItem, offset) = _draggedTab!.Value;
 
-        DraggedOutTab?.Invoke(this, e, new(tabItem), offset);
+        if (_draggedOutTabHandler == null)
+            return;
+
+        Items.Remove(tabItem);
+
+        _draggedTab = null;
+        _draggedOutTabHandler.Invoke(this, e, tabItem, offset);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
