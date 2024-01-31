@@ -4,8 +4,10 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.UpDock.Controls;
+using Avalonia.VisualTree;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Text;
@@ -16,12 +18,10 @@ namespace Avalonia.UpDock;
 public class DockingManager
 {
     private DockTabWindow? _draggedWindow;
-    private readonly Window _hostWindow;
     private readonly SplitPanel _hostControl;
 
-    public DockingManager(Window hostWindow, SplitPanel hostControl)
+    public DockingManager(SplitPanel hostControl)
     {
-        _hostWindow = hostWindow;
         _hostControl = hostControl;
 
         _hostControl.PointerMoved += HostControl_PointerMoved;
@@ -30,8 +30,22 @@ public class DockingManager
         SetupSplitPanelForDocking(hostControl);
     }
 
+    private Window GetHostWindow()
+    {
+        if (_hostControl.GetVisualRoot() is Window window)
+            return window;
+
+        throw new InvalidOperationException(
+            $"The hostControl of this {nameof(DockingManager)} is not part of a Window");
+    }
+
     private void SetupSplitPanelForDocking(SplitPanel splitPanel, Orientation? parentOrientation = null)
     {
+        bool hasParent = parentOrientation.HasValue;
+
+        if(hasParent && splitPanel.Fractions.Count == 1)
+            throw new ArgumentException("Only the docking host can have 1 defined fraction");
+
         Orientation orientation = splitPanel.Orientation;
 
         if (orientation == parentOrientation)
@@ -62,16 +76,22 @@ public class DockingManager
         TabItem tabItem, Point offset)
     {
         var tabControl = (DockingTabControl)sender!;
+        var hostWindow = GetHostWindow();
 
         var window = new DockTabWindow(tabItem)
         {
             Width = tabControl.Bounds.Width,
             Height = tabControl.Bounds.Height,
-            SystemDecorations = SystemDecorations.None,
-            Position = _hostWindow.PointToScreen(e.GetPosition(_hostWindow) + offset)
+            SystemDecorations = SystemDecorations.None
         };
 
-        window.Show(_hostWindow);
+
+        window.Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset);
+
+        window.Show(hostWindow);
+
+        ChildWindowMoveHandler.Hookup(hostWindow, window);
+
         _draggedWindow = window;
         window.OnDragStart(e);
         window.Dragging += DockTabWindow_Dragging;
@@ -82,14 +102,14 @@ public class DockingManager
     {
         var window = ((DockTabWindow)sender!);
 
-        Point hitPoint = e.GetPosition(_hostWindow);
+        Point hitPoint = e.GetPosition(GetHostWindow());
         VisitDockingTabControls(_hostControl, (tabControl) =>
         {
             tabControl.OnDragForeignTabOver(e, window.TabSize, window.TabHeader);
         });
     }
 
-    private static void VisitDockingTabControls(SplitPanel splitPanel, Action<DockingTabControl> visitor)
+    public static void VisitDockingTabControls(SplitPanel splitPanel, Action<DockingTabControl> visitor)
     {
         foreach (var child in splitPanel.Children)
         {
@@ -102,7 +122,7 @@ public class DockingManager
 
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
-        Point hitPoint = e.GetPosition(_hostWindow);
+        Point hitPoint = e.GetPosition(_hostControl);
         VisitDockingTabControls(_hostControl, (tabControl) =>
         {
             var dropTarget = tabControl.EvaluateDropTarget(e);
@@ -151,11 +171,53 @@ public class DockingManager
 
     private bool HitTest(Visual visual, Point hitPoint)
     {
-        Point topLeft = visual.TranslatePoint(new Point(0, 0), _hostWindow)!.Value;
-        Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), _hostWindow)!.Value;
+        Point topLeft = visual.TranslatePoint(new Point(0, 0), _hostControl)!.Value;
+        Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), _hostControl)!.Value;
         return
             topLeft.X <= hitPoint.X && hitPoint.X <= bottomRight.X &&
             topLeft.Y <= hitPoint.Y && hitPoint.Y <= bottomRight.Y;
+    }
+
+    private class ChildWindowMoveHandler
+    {
+        private (PixelPoint topLeft, Size size) _lastParentWindowBounds;
+        private readonly Window _child;
+        private readonly Window _parent;
+        public static void Hookup(Window parent, Window child)
+        {
+            var handler = new ChildWindowMoveHandler(parent, child);
+            parent.PositionChanged += handler.Parent_PositionChanged;
+            child.Closed += handler.Child_Closed;
+        }
+
+        private void Child_Closed(object? sender, EventArgs e)
+        {
+            _parent.PositionChanged -= Parent_PositionChanged;
+            _child.Closed -= Child_Closed;
+        }
+
+        private void Parent_PositionChanged(object? sender, PixelPointEventArgs e)
+        {
+            var position = _parent.Position;
+            var size = _parent.FrameSize.GetValueOrDefault();
+            if (_lastParentWindowBounds.size != size)
+            {
+                _lastParentWindowBounds = (position, size);
+                return;
+            }
+
+            var delta = position - _lastParentWindowBounds.topLeft;
+
+            _child.Position += delta;
+            _lastParentWindowBounds = (position, size);
+        }
+
+        private ChildWindowMoveHandler(Window parent, Window child)
+        {
+            _child = child;
+            _parent = parent;
+            _lastParentWindowBounds = (parent.Position, parent.FrameSize.GetValueOrDefault());
+        }
     }
 }
 

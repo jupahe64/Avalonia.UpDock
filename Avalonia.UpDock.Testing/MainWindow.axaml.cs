@@ -36,7 +36,7 @@ public partial class MainWindow : Window
         if (Design.IsDesignMode)
             return;
 
-        _dockingManager = new DockingManager(this, DockingHost);
+        _dockingManager = new DockingManager(DockingHost);
     }
 }
 
