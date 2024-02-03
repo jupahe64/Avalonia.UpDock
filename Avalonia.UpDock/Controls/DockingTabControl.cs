@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
 using System;
@@ -10,8 +11,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reflection;
-using static Avalonia.UpDock.Controls.DockingTabControl;
 
 namespace Avalonia.UpDock.Controls;
 
@@ -137,15 +136,10 @@ public class DockingTabControl : TabControl
     private (TabItem tabItem, Point offset)? _draggedTab = null;
 
     private (Size dropTabSize, DropTarget dropTarget)? _draggedForeignTabForDrop = null;
-
+    private ItemsPresenter? _itemsPresenterPart;
     private readonly TabItem _tabDropIndicator = new()
     {
         Background = DockIndicatorFieldHoveredFillProperty.GetDefaultValue(typeof(DockingTabControl))
-    };
-
-    private readonly Rectangle _tabBarHitTarget = new()
-    {
-        Fill = Brushes.Transparent
     };
 
     public DockingTabControl()
@@ -180,16 +174,11 @@ public class DockingTabControl : TabControl
     {
         base.OnPointerPressed(e);
 
-        if (e.Source == _tabBarHitTarget)
-        {
-            return; //for now, maybe this was never needed
-        }
-
         //kinda sucks but I'm out of better ideas
 
         Point hitPoint = e.GetPosition(this);
 
-        TabItem? tabItem = Items.OfType<TabItem>().FirstOrDefault(x=> HitTest(x, hitPoint));
+        TabItem? tabItem = Items.OfType<TabItem>().FirstOrDefault(x=> GetBounds(x).Contains(hitPoint));
 
         if (tabItem == null)
             return;
@@ -214,7 +203,9 @@ public class DockingTabControl : TabControl
 
         Point hitPoint = e.GetPosition(this);
 
-        if (!HitTest(_tabBarHitTarget, hitPoint))
+        bool tabBarHovered =TryGetTabBarRect(out Rect rect) && rect.Contains(hitPoint);
+
+        if (!tabBarHovered)
         {
             OnTabBarLeft(e);
             return;
@@ -236,7 +227,7 @@ public class DockingTabControl : TabControl
         {
             var tab = (TabItem)Items[i]!;
 
-            if (HitTest(tab, hitPoint))
+            if (GetBounds(tab).Contains(hitPoint))
             {
                 if (tab == draggedTab)
                     return;
@@ -275,27 +266,6 @@ public class DockingTabControl : TabControl
         _draggedOutTabHandler.Invoke(this, e, tabItem, offset);
     }
 
-    protected override Size ArrangeOverride(Size finalSize)
-    {
-        var value = base.ArrangeOverride(finalSize);
-
-        var maxY = 0.0;
-        foreach (var item in Items)
-        {
-            maxY = Math.Max(((TabItem)item!).Bounds.Bottom, maxY);
-        }
-
-        if (VisualChildren[0] != _tabBarHitTarget)
-        {
-            VisualChildren.Remove(_tabBarHitTarget);
-            VisualChildren.Insert(0, _tabBarHitTarget);
-        }
-
-        _tabBarHitTarget.Arrange(new Rect(0, 0, finalSize.Width, maxY));
-
-        return value;
-    }
-
     public void OnDragForeignTabOver(PointerEventArgs e, Size tabSize, object? tabHeader)
     {
         var oldValue = _draggedForeignTabForDrop;
@@ -332,7 +302,7 @@ public class DockingTabControl : TabControl
         {
             int index = Items.IndexOf(_tabDropIndicator);
 
-            if (index != -1 && HitTest(_tabDropIndicator, hitPoint))
+            if (index != -1 && GetBounds(_tabDropIndicator).Contains(hitPoint))
                 return DropTarget.TabBar(index);
         }
 
@@ -344,13 +314,13 @@ public class DockingTabControl : TabControl
                 if (item == _tabDropIndicator)
                     continue;
 
-                if (HitTest((TabItem)Items[iTab]!, hitPoint))
+                if (GetBounds((TabItem)Items[iTab]!).Contains(hitPoint))
                     return DropTarget.TabBar(iTab);
 
                 iTab++;
             }
 
-            if (HitTest(_tabBarHitTarget, hitPoint))
+            if (TryGetTabBarRect(out Rect rect) && rect.Contains(hitPoint))
                 return DropTarget.TabBar(iTab);
         }
 
@@ -488,12 +458,30 @@ public class DockingTabControl : TabControl
         }
     }
 
-    private bool HitTest(Visual visual, Point hitPoint)
+    private Rect GetBounds(Visual visual)
     {
         Point topLeft = visual.TranslatePoint(new Point(0, 0), this)!.Value;
         Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), this)!.Value;
-        return
-            topLeft.X <= hitPoint.X && hitPoint.X <= bottomRight.X &&
-            topLeft.Y <= hitPoint.Y && hitPoint.Y <= bottomRight.Y;
+        return new Rect(topLeft, bottomRight);
+    }
+
+    protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+    {
+        base.OnApplyTemplate(e);
+
+        _itemsPresenterPart = e.NameScope.Find<ItemsPresenter>("PART_ItemsPresenter");
+    }
+
+    private bool TryGetTabBarRect(out Rect rect)
+    {
+        var tabBarPanel = _itemsPresenterPart?.Panel;
+        if (tabBarPanel is null)
+        {
+            rect = default;
+            return false;
+        }
+
+        rect = GetBounds(tabBarPanel);
+        return true;
     }
 }
