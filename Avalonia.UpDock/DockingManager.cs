@@ -7,11 +7,7 @@ using Avalonia.UpDock.Controls;
 using Avalonia.VisualTree;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Reflection.Metadata;
-using System.Text;
-using System.Threading.Tasks;
+using static Avalonia.UpDock.Controls.DockingTabControl;
 
 namespace Avalonia.UpDock;
 
@@ -19,6 +15,7 @@ public class DockingManager
 {
     private DockTabWindow? _draggedWindow;
     private readonly SplitPanel _hostControl;
+    private HashSet<SplitPanel> _ignoreModified = [];
 
     public DockingManager(SplitPanel hostControl)
     {
@@ -39,12 +36,15 @@ public class DockingManager
             $"The hostControl of this {nameof(DockingManager)} is not part of a Window");
     }
 
+    #region Setup
     private void SetupSplitPanelForDocking(SplitPanel splitPanel, Orientation? parentOrientation = null)
     {
         bool hasParent = parentOrientation.HasValue;
 
         if(hasParent && splitPanel.Fractions.Count == 1)
             throw new ArgumentException("Only the docking host can have 1 defined fraction");
+
+        splitPanel.Children.CollectionChanged += (_,_) => SplitPanel_ChildrenModified(splitPanel);
 
         Orientation orientation = splitPanel.Orientation;
 
@@ -60,7 +60,7 @@ public class DockingManager
             }
 
             if (child is not SplitPanel childSplitPanel)
-                throw new ArgumentException("All children of a SplitPanel must be either a SplitPanel or TabControl" +
+                throw new ArgumentException("All children of a SplitPanel must be either a SplitPanel or DockingTabControl" +
                     $" got {child.GetType().Name}");
 
             SetupSplitPanelForDocking(childSplitPanel, orientation);
@@ -70,7 +70,94 @@ public class DockingManager
     private void SetupTabControlForDocking(DockingTabControl tabControl)
     {
         tabControl.RegisterDraggedOutTabHanlder(TabControl_DraggedOutTab);
+        tabControl.Items.CollectionChanged += (_, _) => TabControl_ItemsModified(tabControl);
     }
+    #endregion
+
+    #region Handle Tree Modifications
+    /// <summary>
+    /// Ensures that after a modification there are still no SplitPanels with less than 2 Children
+    /// unless it's the root
+    /// </summary>
+    private void SplitPanel_ChildrenModified(SplitPanel panel)
+    {
+        if (_ignoreModified.Contains(panel))
+            return;
+
+        if (panel.Parent is not SplitPanel parent)
+            return;
+
+        int slotInParent = parent.Children.IndexOf(panel);
+
+        if (panel.Children.Count == 1)
+        {
+            var child = panel.Children[0];
+
+            //panel is still part of the UI Tree and as such can trigger a cascade of unwanted changes
+            //and we can't remove it without triggering ChildrenModified
+            //or replacing it with a Dummy Control so we have to:
+            _ignoreModified.Add(panel);
+            panel.Children.Clear();
+            _ignoreModified.Remove(panel);
+
+            parent.Children[slotInParent] = child;
+        }
+        else if (panel.Children.Count == 0)
+            parent.Children.RemoveAt(slotInParent);
+    }
+
+    /// <summary>
+    /// Ensures that after a modification there are still no TabControls with no Items
+    /// unless it's the only child in the root
+    /// </summary>
+    private static void TabControl_ItemsModified(DockingTabControl tabControl)
+    {
+        if (tabControl.Items.Count > 0)
+            return;
+
+        if (tabControl.Parent is not SplitPanel parent)
+            return;
+
+        if (parent.Children.Count == 1 && parent.Parent is not SplitPanel)
+            return;
+
+        int indexInParent = parent.Children.IndexOf(tabControl);
+
+        parent.RemoveSlot(indexInParent);
+    }
+    #endregion
+
+    #region Modify Tree Savely
+    /// <summary>
+    /// Creates a <see cref="DockingTabControl"/> that has been setup for Docking
+    /// </summary>
+    private DockingTabControl CreateTabControl(TabItem initialTabItem)
+    {
+        var tabControl = new DockingTabControl();
+        tabControl.Items.Add(initialTabItem);
+        SetupTabControlForDocking(tabControl);
+        return tabControl;
+    }
+
+    /// <summary>
+    /// Creates and inserts a <see cref="SplitPanel"/> that has been setup for Docking
+    /// <para>It does so in a way that no unwanted side effects are triggered</para>
+    /// </summary>
+    private void InsertSplitPanel(Orientation orientation,
+        (int fraction, Control child) slot1, (int fraction, Control child) slot2,
+        Action<SplitPanel> insertAction)
+    {
+        var panel = new SplitPanel
+        {
+            Orientation = orientation,
+            Fractions = new SplitFractions(slot1.fraction, slot2.fraction)
+        };
+        SetupSplitPanelForDocking(panel);
+
+        insertAction(panel);
+        panel.Children.AddRange([slot1.child, slot2.child]);
+    }
+    #endregion
 
     private void TabControl_DraggedOutTab(object? sender, PointerEventArgs e,
         TabItem tabItem, Point offset)
@@ -120,35 +207,84 @@ public class DockingManager
         }
     }
 
+
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
         Point hitPoint = e.GetPosition(_hostControl);
+
+        DockingTabControl? dropTabControl = null;
+        DropTarget dropTarget = DropTarget.None;
+
         VisitDockingTabControls(_hostControl, (tabControl) =>
         {
-            var dropTarget = tabControl.EvaluateDropTarget(e);
+            var _dropTarget = tabControl.EvaluateDropTarget(e);
 
             tabControl.OnEndDragForeignTab();
 
             if (!HitTest(tabControl, hitPoint))
                 return;
 
-            if (dropTarget.IsNone())
+            if (_dropTarget.IsNone())
                 return;
 
-            DockTabWindow window = (DockTabWindow)sender!;
-            TabItem tabItem = window.DetachTabItem();
-            window.Close();
-
-            if (dropTarget.IsTabBar(out int index))
-            {
-                tabControl.Items.Insert(index, tabItem);
-                return;
-            }
-
-            //TODO dynamic splitting
-
-            tabControl.Items.Add(tabItem);
+            dropTabControl = tabControl;
+            dropTarget = _dropTarget;
         });
+
+        if (dropTabControl == null)
+            return;
+
+        DockTabWindow window = (DockTabWindow)sender!;
+        TabItem tabItem = window.DetachTabItem();
+        window.Close();
+
+        if (dropTarget.IsTabBar(out int index))
+        {
+            dropTabControl.Items.Insert(index, tabItem);
+            return;
+        }
+
+        if (dropTarget.IsFill())
+        {
+            dropTabControl.Items.Add(tabItem);
+            return;
+        }
+
+        if (dropTarget.IsDock(out Dock dock))
+        {
+            SplitPanel parent = (SplitPanel)dropTabControl.Parent!;
+
+            Orientation splitOrientation = dock switch
+            {
+                Dock.Left or Dock.Right => Orientation.Horizontal,
+                Dock.Top or Dock.Bottom => Orientation.Vertical,
+                _ => throw new NotImplementedException()
+            };
+
+            TabControl newTabControl = CreateTabControl(tabItem);
+            var dropSlot = parent.Children.IndexOf(dropTabControl);
+
+            parent.GetSlotSize(dropSlot, out int size, out Size size2D);
+
+            int insertSlotSize = size / 2;
+            int otherSlotSize = size - insertSlotSize;
+
+            if (parent.TrySplitSlot(dropSlot, (dock, insertSlotSize, newTabControl), otherSlotSize))
+                return;
+
+            if (dock is Dock.Left or Dock.Top)
+            {
+                InsertSplitPanel(splitOrientation,
+                    (insertSlotSize, newTabControl), (otherSlotSize, dropTabControl),
+                    panel => parent.Children[dropSlot] = panel);
+            }
+            else
+            {
+                InsertSplitPanel(splitOrientation,
+                    (otherSlotSize, dropTabControl), (insertSlotSize, newTabControl),
+                    panel => parent.Children[dropSlot] = panel);
+            }
+        }
     }
 
     protected void HostControl_PointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -284,11 +420,14 @@ internal class DockTabWindow : Window
     {
         base.OnClosing(e);
 
-        if (_tabItem is not ClosableTabItem closable)
-            return;
-
-        if (!_tabControl.Items.Contains(closable))
+        if (!_tabControl.Items.Contains(_tabItem))
             return; //the tabItem is not part of the window anymore
+
+        if (_tabItem is not ClosableTabItem closable)
+        {
+            e.Cancel = true;
+            return;
+        }
 
         if (!_isTabItemClosed)
         {

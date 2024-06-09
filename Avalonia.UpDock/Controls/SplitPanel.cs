@@ -7,12 +7,9 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Utilities;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Avalonia.UpDock.Controls;
 
@@ -20,22 +17,6 @@ public class SplitFractions(params int[] fractions)
 {
     public static SplitFractions Default => new(1);
     public int Count => fractions.Length;
-    public int[] CalcFractionSizes(int totalSize)
-    {
-        int denominator = fractions.Sum();
-        int[] sizes = new int[fractions.Length];
-        int offset = 0;
-        for (int i = 0; i < fractions.Length; i++)
-        {
-            int size = (int)Math.Round(fractions[i] * totalSize / (double)denominator);
-            sizes[i] = size;
-            offset += size;
-        }
-
-        sizes[^1] += totalSize - offset;
-
-        return sizes;
-    }
 
     public (int offset, int size)[] CalcFractionLayoutInfos(int totalSize)
     {
@@ -53,6 +34,24 @@ public class SplitFractions(params int[] fractions)
 
         return layoutInfos;
     }
+
+    public int[] CalcFractionSizes(int totalSize) =>
+        CalcFractionLayoutInfos(totalSize)
+        .Select(x => x.size)
+        .ToArray();
+
+    public Rect[] CalcFractionRects(Size totalSize, Orientation orientation)
+    {
+        if (orientation == Orientation.Horizontal)
+            return CalcFractionLayoutInfos((int)totalSize.Width)
+                .Select(x => new Rect(x.offset, 0, x.size, totalSize.Height))
+                .ToArray();
+        else
+            return CalcFractionLayoutInfos((int)totalSize.Height)
+                .Select(x => new Rect(0, x.offset, totalSize.Width, x.size))
+                .ToArray();
+    }
+
     public int this[int index] => fractions[index];
 
     public static SplitFractions Parse(string s)
@@ -87,13 +86,11 @@ public class SplitPanel : Panel
             else
                 _fractions = value;
 
-            InvalidateArrange();
-
-            if (oldCount == _fractions.Count)
-                return;
-
+            if (oldCount != _fractions.Count)
+            {
             VisualChildren.RemoveAll(_splitLines);
 
+                _splitLines.Clear();
             for (int i = 0; i < _fractions.Count - 1; i++)
             {
                 var line = new Line()
@@ -105,58 +102,107 @@ public class SplitPanel : Panel
                 _splitLines.Add(line);
             }
         }
+
+            InvalidateMeasure();
+    }
     }
 
     public Orientation Orientation { get; set; }
 
-    protected override Size ArrangeOverride(Size finalSize)
+    public void GetSlotSize(int slot, out int size, out Size size2D)
     {
-        var layoutInfos = _fractions.CalcFractionLayoutInfos(
-            (int)(Orientation == Orientation.Horizontal ? Bounds.Width : Bounds.Height));
+        var sizes = Fractions.CalcFractionSizes(
+            (int)ExtractForOrientation(Bounds.Size));
 
-        var slotCount = Fractions.Count;
+        size = sizes[slot];
 
-        if(Orientation == Orientation.Horizontal)
+        if (Orientation == Orientation.Horizontal)
         {
-            for (int i = 0; i < slotCount - 1; i++)
-            {
-                var (offset, _) = layoutInfos[i + 1];
-                _splitLines[i].StartPoint = new Point(offset, 0);
-                _splitLines[i].EndPoint = new Point(offset, finalSize.Height);
-            }
-
-            for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
-            {
-                Control child = Children[i];
-
-                var (offset, size) = layoutInfos[i];
-                child.Arrange(new Rect(
-                    offset, 0,
-                    size, finalSize.Height));
-            }
+            size2D = new Size(size, Bounds.Height);
         }
         else
-        {
-            for (int i = 1; i < slotCount; i++)
             {
-                var (offset, _) = layoutInfos[i];
-                _splitLines[i].StartPoint = new Point(0, offset);
-                _splitLines[i].EndPoint = new Point(finalSize.Width, offset);
+            size2D = new Size(Bounds.Width, size);
+        }
             }
 
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var rects = _fractions.CalcFractionRects(availableSize, Orientation);
+        var slotCount = Fractions.Count;
             for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
-            {
-                Control child = Children[i];
+            Children[i].Measure(rects[i].Size);
 
-                var (offset, size) = layoutInfos[i];
-                child.Arrange(new Rect(
-                    0, offset,
-                    finalSize.Width, size));
+        return availableSize;
+    }
+
+    protected override Size ArrangeOverride(Size finalSize)
+            {
+        var rects = _fractions.CalcFractionRects(finalSize, Orientation);
+        var slotCount = Fractions.Count;
+
+        for (int i = 0; i < slotCount - 1; i++)
+        {
+            if (Orientation == Orientation.Horizontal)
+            {
+                
+                _splitLines[i].StartPoint = rects[i].TopRight;
+                _splitLines[i].EndPoint = rects[i].BottomRight;
             }
+        else
+        {
+                _splitLines[i].StartPoint = rects[i].BottomLeft;
+                _splitLines[i].EndPoint = rects[i].BottomRight;
+            }
+
+            _splitLines[i].InvalidateVisual();
         }
 
+            for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
+            Children[i].Arrange(rects[i]);
 
         return finalSize;
+    }
+
+    public bool TrySplitSlot(int slot, (Dock dock, int fraction, Control item) insert, int remainingSlotFraction)
+            {
+        if (insert.dock is Dock.Left or Dock.Right && Orientation is Orientation.Vertical)
+            return false;
+        if (insert.dock is Dock.Top or Dock.Bottom && Orientation is Orientation.Horizontal)
+            return false;
+
+        List<int> slotSizes =
+        [
+            .. _fractions.CalcFractionSizes(
+                        (int)ExtractForOrientation(Bounds.Size)),
+        ];
+
+        int total = insert.fraction + remainingSlotFraction;
+
+        int insertSlotSize = slotSizes[slot] * insert.fraction / total;
+        slotSizes[slot] = slotSizes[slot] - insertSlotSize;
+
+        if (insert.dock is Dock.Right or Dock.Bottom)
+            slot++;
+
+        slotSizes.Insert(slot, insertSlotSize);
+        Children.Insert(slot, insert.item);
+        Fractions = new SplitFractions([.. slotSizes]);
+        return true;
+        }
+
+    public void RemoveSlot(int slot)
+    {
+        List<int> fractions = Enumerable.Range(0, Fractions.Count)
+            .Select(i => Fractions[i])
+            .ToList();
+
+        fractions.RemoveAt(slot);
+
+        Fractions = new SplitFractions([.. fractions]);
+
+        if (Children.Count > slot)
+            Children.RemoveAt(slot);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
@@ -166,6 +212,8 @@ public class SplitPanel : Panel
         if (_draggedSplitLine == null)
             return;
 
+        bool isHorizontal = Orientation == Orientation.Horizontal;
+
         var pointerPos = e.GetPosition(this);
         var (splitIndex, lastPointerPosition) = _draggedSplitLine.Value;
         var pointerDelta = new Point(
@@ -174,24 +222,40 @@ public class SplitPanel : Panel
             );
 
         int[] fractionSizes = _fractions.CalcFractionSizes(
-            (int)(Orientation == Orientation.Horizontal ? Bounds.Width : Bounds.Height));
+            (int)ExtractForOrientation(Bounds.Size));
 
-        int delta = (int)(Orientation == Orientation.Horizontal ? pointerDelta.X : pointerDelta.Y);
+        int delta = (int)(isHorizontal ? pointerDelta.X : pointerDelta.Y);
 
-        int minFractionSize = 20;
+        int minFractionSizeSlotBefore = 20;
+        int minFractionSizeSlotAfter = 20;
 
-        if(fractionSizes[splitIndex] + delta < minFractionSize)
-            delta = -(fractionSizes[splitIndex] - minFractionSize);
-        if (fractionSizes[splitIndex + 1] - delta < minFractionSize)
-            delta = (fractionSizes[splitIndex + 1] - minFractionSize);
+        if (splitIndex < Children.Count)
+        {
+            minFractionSizeSlotBefore = Math.Max(
+                minFractionSizeSlotBefore,
+                (int)ExtractForOrientation(Children[splitIndex].DesiredSize)
+            );
+        }
+        if (splitIndex + 1 < Children.Count)
+        {
+            minFractionSizeSlotAfter = Math.Max(
+                minFractionSizeSlotAfter,
+                (int)ExtractForOrientation(Children[splitIndex + 1].DesiredSize)
+            );
+        }
 
-        if (fractionSizes[splitIndex] + delta < minFractionSize) //we are trapped, abort
+        if (fractionSizes[splitIndex] + delta < minFractionSizeSlotBefore)
+            delta = -(fractionSizes[splitIndex] - minFractionSizeSlotBefore);
+        if (fractionSizes[splitIndex + 1] - delta < minFractionSizeSlotAfter)
+            delta = (fractionSizes[splitIndex + 1] - minFractionSizeSlotAfter);
+
+        if (fractionSizes[splitIndex] + delta < minFractionSizeSlotBefore) //we are trapped, abort
             return;
 
         fractionSizes[splitIndex] += delta;
         fractionSizes[splitIndex + 1] -= delta;
 
-        if (Orientation == Orientation.Horizontal)
+        if (isHorizontal)
             pointerDelta = pointerDelta.WithX(delta);
         else
             pointerDelta = pointerDelta.WithY(delta);
@@ -199,6 +263,11 @@ public class SplitPanel : Panel
         _draggedSplitLine = (splitIndex, lastPointerPosition + pointerDelta);
 
         Fractions = new SplitFractions(fractionSizes);
+    }
+
+    private double ExtractForOrientation(Size size)
+    {
+        return Orientation == Orientation.Horizontal ? size.Width : size.Height;
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
