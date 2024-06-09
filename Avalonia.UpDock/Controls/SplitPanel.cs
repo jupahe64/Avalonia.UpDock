@@ -72,6 +72,9 @@ public class SplitPanel : Panel
 {
     private (int index, Point lastPointerPosition)? _draggedSplitLine = null;
 
+    private static Cursor s_horizontalResizeCursor = new Cursor(StandardCursorType.SizeWestEast);
+    private static Cursor s_verticalResizeCursor = new Cursor(StandardCursorType.SizeNorthSouth);
+
     private List<Line> _splitLines = [];
     private SplitFractions _fractions = SplitFractions.Default;
 
@@ -88,23 +91,29 @@ public class SplitPanel : Panel
 
             if (oldCount != _fractions.Count)
             {
-            VisualChildren.RemoveAll(_splitLines);
+                VisualChildren.RemoveAll(_splitLines);
 
                 _splitLines.Clear();
-            for (int i = 0; i < _fractions.Count - 1; i++)
-            {
-                var line = new Line()
+                for (int i = 0; i < _fractions.Count - 1; i++)
                 {
-                    Stroke = Brushes.Gray,
-                    StrokeThickness = 4
-                };
-                VisualChildren.Add(line);
-                _splitLines.Add(line);
+                    var line = new Line()
+                    {
+                        Stroke = Brushes.Gray,
+                        StrokeThickness = 4
+                    };
+
+                    if (Orientation == Orientation.Horizontal)
+                        line.Cursor = s_horizontalResizeCursor;
+                    else
+                        line.Cursor = s_verticalResizeCursor;
+
+                    VisualChildren.Add(line);
+                    _splitLines.Add(line);
+                }
             }
-        }
 
             InvalidateMeasure();
-    }
+        }
     }
 
     public Orientation Orientation { get; set; }
@@ -121,23 +130,23 @@ public class SplitPanel : Panel
             size2D = new Size(size, Bounds.Height);
         }
         else
-            {
+        {
             size2D = new Size(Bounds.Width, size);
         }
-            }
+    }
 
     protected override Size MeasureOverride(Size availableSize)
     {
         var rects = _fractions.CalcFractionRects(availableSize, Orientation);
         var slotCount = Fractions.Count;
-            for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
+        for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
             Children[i].Measure(rects[i].Size);
 
         return availableSize;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
-            {
+    {
         var rects = _fractions.CalcFractionRects(finalSize, Orientation);
         var slotCount = Fractions.Count;
 
@@ -149,8 +158,8 @@ public class SplitPanel : Panel
                 _splitLines[i].StartPoint = rects[i].TopRight;
                 _splitLines[i].EndPoint = rects[i].BottomRight;
             }
-        else
-        {
+            else
+            {
                 _splitLines[i].StartPoint = rects[i].BottomLeft;
                 _splitLines[i].EndPoint = rects[i].BottomRight;
             }
@@ -158,14 +167,14 @@ public class SplitPanel : Panel
             _splitLines[i].InvalidateVisual();
         }
 
-            for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
+        for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
             Children[i].Arrange(rects[i]);
 
         return finalSize;
     }
 
     public bool TrySplitSlot(int slot, (Dock dock, int fraction, Control item) insert, int remainingSlotFraction)
-            {
+    {
         if (insert.dock is Dock.Left or Dock.Right && Orientation is Orientation.Vertical)
             return false;
         if (insert.dock is Dock.Top or Dock.Bottom && Orientation is Orientation.Horizontal)
@@ -189,7 +198,7 @@ public class SplitPanel : Panel
         Children.Insert(slot, insert.item);
         Fractions = new SplitFractions([.. slotSizes]);
         return true;
-        }
+    }
 
     public void RemoveSlot(int slot)
     {
