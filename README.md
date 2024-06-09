@@ -22,7 +22,7 @@ This should in theory also make this library future proof.
 - Close Tabs
 - Drag Tab out of TabControl to create a new floating window
 - Drag Tab into another TabControl, that's part of the same docking host (DockingManager), to add it as a tab
-- Drag Tab into another TabControl to create a new split and Dock it there `TODO`
+- Drag Tab into another TabControl to create a new split and Dock it there
 
 ## Getting started
 To use the DockingManager you need to have a docking host control that fits the following requirements:
