@@ -139,10 +139,25 @@ public class SplitPanel : Panel
     {
         var rects = _fractions.CalcFractionRects(availableSize, Orientation);
         var slotCount = Fractions.Count;
-        for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
-            Children[i].Measure(rects[i].Size);
 
-        return availableSize;
+        double desiredWidth = 0;
+        double desiredHeight = 0;
+        for (int i = 0; i < Math.Min(Children.Count, slotCount); i++)
+        {
+            Children[i].Measure(rects[i].Size);
+            if (Orientation == Orientation.Horizontal)
+            {
+                desiredWidth += Children[i].DesiredSize.Width;
+                desiredHeight = Math.Max(desiredHeight, Children[i].DesiredSize.Height);
+            }
+            else
+            {
+                desiredWidth = Math.Max(desiredWidth, Children[i].DesiredSize.Width);
+                desiredHeight += Children[i].DesiredSize.Height;
+            }
+        }
+
+        return new Size(desiredWidth, desiredHeight);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
