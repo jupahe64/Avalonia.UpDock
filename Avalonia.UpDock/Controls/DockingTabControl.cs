@@ -301,11 +301,15 @@ public class DockingTabControl : TabControl
         if (_draggedOutTabHandler == null)
             return;
 
+        //modifying Items has side effects, so we can't rely on the handler still having a value
+        var handler = _draggedOutTabHandler;
+
         Items.Remove(tabItem);
 
         _draggedTab = null;
         _draggedTabGhost = null;
-        _draggedOutTabHandler.Invoke(this, e, tabItem, offset);
+
+        handler.Invoke(this, e, tabItem, offset);
     }
 
     private TabItem _appendPlaceholderTab = new DummyTabItem

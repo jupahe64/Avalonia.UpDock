@@ -12,8 +12,6 @@ namespace Avalonia.UpDock.Testing;
 
 public partial class MainWindow : Window
 {
-    private DockingManager? _dockingManager;
-
     public MainWindow()
     {
         InitializeComponent(true, true);
@@ -35,8 +33,6 @@ public partial class MainWindow : Window
         base.OnLoaded(e);
         if (Design.IsDesignMode)
             return;
-
-        _dockingManager = new DockingManager(DockingHost);
     }
 }
 

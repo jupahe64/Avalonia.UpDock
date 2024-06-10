@@ -1,76 +1,117 @@
 ﻿using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Layout;
-using Avalonia.Media;
-using Avalonia.UpDock.Controls;
-using Avalonia.VisualTree;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Diagnostics;
+using System.Linq;
 using static Avalonia.UpDock.Controls.DockingTabControl;
+using LIST_MODIFY_HANDLER = System.Collections.Specialized.NotifyCollectionChangedEventHandler;
 
-namespace Avalonia.UpDock;
+namespace Avalonia.UpDock.Controls;
 
-public class DockingManager
+public class DockingHost : DockPanel
 {
     private DockTabWindow? _draggedWindow;
-    private readonly SplitPanel _hostControl;
-    private HashSet<SplitPanel> _ignoreModified = [];
+    private readonly HashSet<SplitPanel> _ignoreModified = [];
 
-    public DockingManager(SplitPanel hostControl)
+    protected override void ChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        _hostControl = hostControl;
+        base.ChildrenChanged(sender, e);
+        HandleChildrenModified(this, e);
+    }
 
-        _hostControl.PointerMoved += HostControl_PointerMoved;
-        _hostControl.PointerReleased += HostControl_PointerReleased;
+    private void HandleChildrenModified(Control control, NotifyCollectionChangedEventArgs e)
+    {
+        foreach (var child in e.OldItems?.OfType<Control>() ?? [])
+        {
+            if (child is SplitPanel splitPanel)
+                UnregisterSplitPanel(splitPanel);
+            else if (child is TabControl tabControl)
+                UnregisterTabControl(tabControl);
+        }
 
-        SetupSplitPanelForDocking(hostControl);
+        foreach (var child in e.NewItems?.OfType<Control>() ?? [])
+        {
+            if (child is SplitPanel splitPanel)
+                RegisterSplitPanelForDocking(splitPanel, (control as SplitPanel)?.Orientation);
+            else if (child is TabControl tabControl)
+                RegisterTabControlForDocking(tabControl);
+        }
     }
 
     private Window GetHostWindow()
     {
-        if (_hostControl.GetVisualRoot() is Window window)
+        if (VisualRoot is Window window)
             return window;
 
         throw new InvalidOperationException(
-            $"The hostControl of this {nameof(DockingManager)} is not part of a Window");
+            $"This {nameof(DockingHost)} is not part of a Window");
     }
 
-    #region Setup
-    private void SetupSplitPanelForDocking(SplitPanel splitPanel, Orientation? parentOrientation = null)
+    #region Register/Unregister
+    private readonly Dictionary<TabControl, LIST_MODIFY_HANDLER> _registeredTabControls = [];
+    private readonly Dictionary<SplitPanel, LIST_MODIFY_HANDLER> _registeredSplitPanels = [];
+
+    private void RegisterSplitPanelForDocking(SplitPanel splitPanel, Orientation? parentOrientation = null)
     {
+        Debug.Assert(!_registeredSplitPanels.ContainsKey(splitPanel));
         bool hasParent = parentOrientation.HasValue;
-
-        if(hasParent && splitPanel.Fractions.Count == 1)
-            throw new ArgumentException("Only the docking host can have 1 defined fraction");
-
-        splitPanel.Children.CollectionChanged += (_,_) => SplitPanel_ChildrenModified(splitPanel);
-
         Orientation orientation = splitPanel.Orientation;
 
-        if (orientation == parentOrientation)
-            throw new ArgumentException("Cannot have nested SplitPanels of same orientation");
+
+        LIST_MODIFY_HANDLER handler = (s, e) => SplitPanel_ChildrenModified(splitPanel, e);
+        splitPanel.Children.CollectionChanged += handler;
+        _registeredSplitPanels[splitPanel] = handler;
 
         foreach (var child in splitPanel.Children)
         {
-            if (child is DockingTabControl tabControl)
-            {
-                SetupTabControlForDocking(tabControl);
-                continue;
-            }
-
-            if (child is not SplitPanel childSplitPanel)
-                throw new ArgumentException("All children of a SplitPanel must be either a SplitPanel or DockingTabControl" +
-                    $" got {child.GetType().Name}");
-
-            SetupSplitPanelForDocking(childSplitPanel, orientation);
+            if (child is TabControl tabControl)
+                RegisterTabControlForDocking(tabControl);
+            else if (child is SplitPanel childSplitPanel)
+                RegisterSplitPanelForDocking(childSplitPanel, orientation);
         }
     }
 
-    private void SetupTabControlForDocking(DockingTabControl tabControl)
+    private void UnregisterSplitPanel(SplitPanel splitPanel)
     {
-        tabControl.RegisterDraggedOutTabHanlder(TabControl_DraggedOutTab);
-        tabControl.Items.CollectionChanged += (_, _) => TabControl_ItemsModified(tabControl);
+        Debug.Assert(_registeredSplitPanels.Remove(splitPanel, out var handler));
+        splitPanel.Children.CollectionChanged -= handler;
+
+        foreach (var child in splitPanel.Children)
+        {
+            if (child is TabControl tabControl)
+                UnregisterTabControl(tabControl);
+            else if (child is SplitPanel childSplitPanel)
+                UnregisterSplitPanel(childSplitPanel);
+        }
+    }
+
+    private void RegisterTabControlForDocking(TabControl tabControl)
+    {
+        Debug.Assert(!_registeredTabControls.ContainsKey(tabControl));
+        Debug.WriteLine($"Registering " +
+            $"{string.Join(' ',tabControl.Items.OfType<TabItem>().Select(x => x.Header))}");
+
+        LIST_MODIFY_HANDLER handler = (_, _) => TabControl_ItemsModified(tabControl);
+        tabControl.Items.CollectionChanged += handler;
+        _registeredTabControls[tabControl] = handler;
+
+        if (tabControl is DockingTabControl dockingTabControl)
+            dockingTabControl.RegisterDraggedOutTabHanlder(TabControl_DraggedOutTab);
+    }
+
+    private void UnregisterTabControl(TabControl tabControl)
+    {
+        Debug.WriteLine($"Unregistering " +
+            $"{string.Join(' ', tabControl.Items.OfType<TabItem>().Select(x => x.Header))}");
+
+        Debug.Assert(_registeredTabControls.Remove(tabControl, out var handler));
+        tabControl.Items.CollectionChanged -= handler;
+
+        if (tabControl is DockingTabControl dockingTabControl)
+            dockingTabControl.UnregisterDraggedOutTabHanlder();
     }
     #endregion
 
@@ -79,9 +120,14 @@ public class DockingManager
     /// Ensures that after a modification there are still no SplitPanels with less than 2 Children
     /// unless it's the root
     /// </summary>
-    private void SplitPanel_ChildrenModified(SplitPanel panel)
+    private void SplitPanel_ChildrenModified(SplitPanel panel, NotifyCollectionChangedEventArgs e)
     {
         if (_ignoreModified.Contains(panel))
+            return;
+
+        HandleChildrenModified(panel, e);
+
+        if (e.Action != NotifyCollectionChangedAction.Remove)
             return;
 
         if (panel.Parent is not SplitPanel parent)
@@ -97,6 +143,12 @@ public class DockingManager
             //and we can't remove it without triggering ChildrenModified
             //or replacing it with a Dummy Control so we have to:
             _ignoreModified.Add(panel);
+
+            if (child is TabControl tabControl)
+                UnregisterTabControl(tabControl);
+            else if (child is SplitPanel splitPanel)
+                UnregisterSplitPanel(splitPanel);
+
             panel.Children.Clear();
             _ignoreModified.Remove(panel);
 
@@ -108,9 +160,9 @@ public class DockingManager
 
     /// <summary>
     /// Ensures that after a modification there are still no TabControls with no Items
-    /// unless it's the only child in the root
+    /// unless it's the only child in the root or the only other children are unsupported Controls
     /// </summary>
-    private static void TabControl_ItemsModified(DockingTabControl tabControl)
+    private static void TabControl_ItemsModified(TabControl tabControl)
     {
         if (tabControl.Items.Count > 0)
             return;
@@ -127,15 +179,14 @@ public class DockingManager
     }
     #endregion
 
-    #region Modify Tree Savely
+    #region Create Dock Tree Nodes Savely
     /// <summary>
     /// Creates a <see cref="DockingTabControl"/> that has been setup for Docking
     /// </summary>
-    private DockingTabControl CreateTabControl(TabItem initialTabItem)
+    private static DockingTabControl CreateTabControl(TabItem initialTabItem)
     {
         var tabControl = new DockingTabControl();
         tabControl.Items.Add(initialTabItem);
-        SetupTabControlForDocking(tabControl);
         return tabControl;
     }
 
@@ -143,7 +194,7 @@ public class DockingManager
     /// Creates and inserts a <see cref="SplitPanel"/> that has been setup for Docking
     /// <para>It does so in a way that no unwanted side effects are triggered</para>
     /// </summary>
-    private void InsertSplitPanel(Orientation orientation,
+    private static void InsertSplitPanel(Orientation orientation,
         (int fraction, Control child) slot1, (int fraction, Control child) slot2,
         Action<SplitPanel> insertAction)
     {
@@ -152,7 +203,6 @@ public class DockingManager
             Orientation = orientation,
             Fractions = new SplitFractions(slot1.fraction, slot2.fraction)
         };
-        SetupSplitPanelForDocking(panel);
 
         insertAction(panel);
         panel.Children.AddRange([slot1.child, slot2.child]);
@@ -187,13 +237,24 @@ public class DockingManager
 
     private void DockTabWindow_Dragging(object? sender, PointerEventArgs e)
     {
-        var window = ((DockTabWindow)sender!);
+        var window = (DockTabWindow)sender!;
 
         Point hitPoint = e.GetPosition(GetHostWindow());
-        VisitDockingTabControls(_hostControl, (tabControl) =>
+        VisitDockingTabControls((tabControl) =>
         {
-            tabControl.OnDragForeignTabOver(e, window.TabSize, window.TabHeader);
+            tabControl.OnDragForeignTabOver(e, window.TabContentSize, window.TabItemSize);
         });
+    }
+
+    public void VisitDockingTabControls(Action<DockingTabControl> visitor)
+    {
+        foreach (var child in Children)
+        {
+            if (child is DockingTabControl dockingTabControl)
+                visitor(dockingTabControl);
+            else if (child is SplitPanel childSplitPanel)
+                VisitDockingTabControls(childSplitPanel, visitor);
+        }
     }
 
     public static void VisitDockingTabControls(SplitPanel splitPanel, Action<DockingTabControl> visitor)
@@ -210,12 +271,12 @@ public class DockingManager
 
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
-        Point hitPoint = e.GetPosition(_hostControl);
+        Point hitPoint = e.GetPosition(this);
 
         DockingTabControl? dropTabControl = null;
         DropTarget dropTarget = DropTarget.None;
 
-        VisitDockingTabControls(_hostControl, (tabControl) =>
+        VisitDockingTabControls((tabControl) =>
         {
             var _dropTarget = tabControl.EvaluateDropTarget(e);
 
@@ -287,8 +348,10 @@ public class DockingManager
         }
     }
 
-    protected void HostControl_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
+        base.OnPointerReleased(e);
+
         if (_draggedWindow is null)
             return;
 
@@ -297,8 +360,10 @@ public class DockingManager
         _draggedWindow = null;
     }
 
-    protected void HostControl_PointerMoved(object? sender, PointerEventArgs e)
+    protected override void OnPointerMoved(PointerEventArgs e)
     {
+        base.OnPointerMoved(e);
+
         if (_draggedWindow is null)
             return;
 
@@ -307,8 +372,8 @@ public class DockingManager
 
     private bool HitTest(Visual visual, Point hitPoint)
     {
-        Point topLeft = visual.TranslatePoint(new Point(0, 0), _hostControl)!.Value;
-        Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), _hostControl)!.Value;
+        Point topLeft = visual.TranslatePoint(new Point(0, 0), this)!.Value;
+        Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), this)!.Value;
         return
             topLeft.X <= hitPoint.X && hitPoint.X <= bottomRight.X &&
             topLeft.Y <= hitPoint.Y && hitPoint.Y <= bottomRight.Y;
@@ -354,157 +419,5 @@ public class DockingManager
             _parent = parent;
             _lastParentWindowBounds = (parent.Position, parent.FrameSize.GetValueOrDefault());
         }
-    }
-}
-
-internal class DockTabWindow : Window
-{
-    public Size TabSize { get; private set; }
-    public object? TabHeader => _tabItem.Header;
-
-    private record DragInfo(Point Offset);
-
-    private IBrush? _tabBackground = null;
-    private IBrush? _tabItemBackground = null;
-    private IPen _borderPen = new Pen(Brushes.Gray, 1);
-    private TabItem _tabItem;
-    private TabControl _tabControl;
-
-    private DragInfo? _dragInfo = null;
-
-    public event EventHandler<PointerEventArgs>? Dragging;
-    public event EventHandler<PointerEventArgs>? DragEnd;
-
-    public TabItem DetachTabItem()
-    {
-        _tabControl.Items.Clear();
-
-        _tabItem.PointerPressed -= TabItem_PointerPressed;
-        _tabItem.PointerMoved -= TabItem_PointerMoved;
-        _tabItem.PointerReleased -= TabItem_PointerReleased;
-
-        if (_tabItem is ClosableTabItem closable)
-            closable.Closed -= TabItem_Closed;
-
-        _tabItem.Background = _tabItemBackground;
-
-        return _tabItem;
-    }
-
-    public DockTabWindow(TabItem tabItem)
-    {
-        _tabItem = tabItem;
-
-        _tabItem.PointerPressed += TabItem_PointerPressed;
-        _tabItem.PointerMoved += TabItem_PointerMoved;
-        _tabItem.PointerReleased += TabItem_PointerReleased;
-
-        if (_tabItem is ClosableTabItem closable)
-            closable.Closed += TabItem_Closed;
-
-        _tabItemBackground = tabItem.Background;
-
-
-        _tabControl = new TabControl()
-        {
-            Background = Brushes.Transparent, //just to be save
-        };
-        _tabControl.Items.Add(tabItem);
-
-        Content = _tabControl;
-    }
-
-    private bool _isTabItemClosed = false;
-
-    protected override void OnClosing(WindowClosingEventArgs e)
-    {
-        base.OnClosing(e);
-
-        if (!_tabControl.Items.Contains(_tabItem))
-            return; //the tabItem is not part of the window anymore
-
-        if (_tabItem is not ClosableTabItem closable)
-        {
-            e.Cancel = true;
-            return;
-        }
-
-        if (!_isTabItemClosed)
-        {
-            e.Cancel = true;
-            closable.Close();
-        }
-    }
-
-    private void TabItem_Closed(object? sender, RoutedEventArgs e)
-    {
-        _isTabItemClosed = true;
-        Close();
-    }
-
-    private void TabItem_PointerPressed(object? sender, PointerEventArgs e) => OnDragStart(e);
-    private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
-    private void TabItem_PointerReleased(object? sender, PointerEventArgs e) => OnDragEnd(e);
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        if (change.Property != SystemDecorationsProperty || _tabBackground == null)
-            return;
-
-        if (SystemDecorations == SystemDecorations.None)
-        {
-            Background = null;
-        }
-        else
-            Background = _tabBackground;
-    }
-
-    protected override void OnLoaded(RoutedEventArgs e)
-    {
-        base.OnLoaded(e);
-        _tabBackground = Background;
-        _tabItem.Background = Background;
-        Background = null;
-        InvalidateVisual();
-    }
-
-    public override void Render(DrawingContext context)
-    {
-        Point topLeft = _tabItem.TranslatePoint(new Point(0, 0), this)!.Value;
-        Point bottomRight = _tabItem.TranslatePoint(new Point(_tabItem.Bounds.Width, _tabItem.Bounds.Height), this)!.Value;
-
-        var rect = Bounds.WithY(bottomRight.Y).WithHeight(Bounds.Height - bottomRight.Y);
-
-        //probably fine
-        TabSize = rect.Size;
-
-        context.FillRectangle(_tabBackground!, rect);
-        context.DrawRectangle(_borderPen, rect);
-        base.Render(context);
-    }
-
-    public void OnDragStart(PointerEventArgs e)
-    {
-        SystemDecorations = SystemDecorations.None;
-        _dragInfo = new(e.GetPosition(this));
-    }
-
-    public void OnDragEnd(PointerEventArgs e)
-    {
-        _dragInfo = null;
-        DragEnd?.Invoke(this, e);
-        SystemDecorations = SystemDecorations.Full;
-    }
-
-    public void OnDragging(PointerEventArgs e)
-    {
-        if (_dragInfo == null)
-            return;
-
-        Point offset = _dragInfo.Offset;
-
-        Position = this.PointToScreen(e.GetPosition(this) - offset);
-        Dragging?.Invoke(this, e);
     }
 }
