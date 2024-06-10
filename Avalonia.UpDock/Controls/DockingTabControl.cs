@@ -137,10 +137,6 @@ public class DockingTabControl : TabControl
 
     private (Size dropTabSize, DropTarget dropTarget)? _draggedForeignTabForDrop = null;
     private ItemsPresenter? _itemsPresenterPart;
-    private readonly TabItem _tabDropIndicator = new()
-    {
-        Background = DockIndicatorFieldHoveredFillProperty.GetDefaultValue(typeof(DockingTabControl))
-    };
 
     public DockingTabControl()
     {
@@ -178,7 +174,7 @@ public class DockingTabControl : TabControl
 
         Point hitPoint = e.GetPosition(this);
 
-        TabItem? tabItem = Items.OfType<TabItem>().FirstOrDefault(x=> GetBounds(x).Contains(hitPoint));
+        TabItem? tabItem = Items.OfType<TabItem>().LastOrDefault(x=> GetBounds(x).Contains(hitPoint));
 
         if (tabItem == null)
             return;
@@ -192,7 +188,12 @@ public class DockingTabControl : TabControl
     {
         base.OnPointerReleased(e);
         _draggedTab = null;
+        _draggedTabGhost = null;
+        _dragRearrangeDeflicker.Reset();
     }
+
+    private RearrangeDeflickerer _dragRearrangeDeflicker = new();
+    private (Rect bounds, int index)? _draggedTabGhost = null;
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
@@ -203,7 +204,7 @@ public class DockingTabControl : TabControl
 
         Point hitPoint = e.GetPosition(this);
 
-        bool tabBarHovered =TryGetTabBarRect(out Rect rect) && rect.Contains(hitPoint);
+        bool tabBarHovered = TryGetTabBarRect(out Rect rect) && rect.Contains(hitPoint);
 
         if (!tabBarHovered)
         {
@@ -216,41 +217,81 @@ public class DockingTabControl : TabControl
 
     private void OnDragToRearrange(PointerEventArgs e)
     {
-        Point hitPoint = e.GetPosition(this);
-
         var (draggedTab, _) = _draggedTab!.Value;
 
-        if (Items.Contains(_tabDropIndicator) || !Items.Contains(draggedTab))
-            return; //should never happen
+        #region handle invalid state
+        if (Items.Contains(_appendPlaceholderTab))
+        {
+            Debug.Fail("Found placeholder tab in Items when rearranging");
+            return;
+        }
 
-        for (int i = 0; i < Items.Count; i++)
+        if (Items.Contains(_draggedTab))
+        {
+            Debug.Fail("Dragged tab is not an Item of this TabControl");
+            return;
+        }
+        #endregion
+
+        if (!TryGetHoveredTabItem(e, out int hoveredIndex, out TabItem? hovered))
+            return; //only rearrange when hovering a tab item
+
+        _dragRearrangeDeflicker.Evaluate(hovered, out bool isHoveredValid);
+
+        if (hovered == draggedTab)
+            return; //it can not be the same item as the one dragged
+
+        //make dragging back to the last position a lot easier
+        if (_draggedTabGhost.HasValue && _draggedTabGhost.Value.bounds.Contains(e.GetPosition(this)))
+        {
+            Items.Remove(draggedTab);
+            Items.Insert(_draggedTabGhost.Value.index, draggedTab);
+            return;
+        }
+
+        if (!isHoveredValid)
+            return; ///don't count the tab hovered after rearrange to prevent flickering
+                    ///see <see cref="RearrangeDeflickerer"/>
+
+        int draggedTabIndex = Items.IndexOf(draggedTab);
+
+        bool isAfter = hoveredIndex > draggedTabIndex;
+
+        _draggedTabGhost = (GetBounds(draggedTab), draggedTabIndex);
+
+        Items.RemoveAt(draggedTabIndex);
+
+        //insert before or after hovered depending on which "direction" you are dragging
+        if (isAfter)
+            Items.Insert(Items.IndexOf(hovered) + 1, draggedTab);
+        else
+            Items.Insert(Items.IndexOf(hovered), draggedTab);
+
+        _dragRearrangeDeflicker.SetRearranged();
+    }
+
+    private bool TryGetHoveredTabItem(PointerEventArgs e, 
+        out int index, [NotNullWhen(true)] out TabItem? hovered)
+    {
+        Point hitPoint = e.GetPosition(this);
+
+        for (int i = Items.Count - 1; i >= 0; i--)
         {
             var tab = (TabItem)Items[i]!;
 
-            if (GetBounds(tab).Contains(hitPoint))
+            var tabItemBounds = GetBounds(tab);
+
+            if (tabItemBounds.Contains(hitPoint))
             {
-                if (tab == draggedTab)
-                    return;
-
-                bool isAfter = i > Items.IndexOf(draggedTab);
-
-                Items.Remove(draggedTab);
-
-                int index = Items.IndexOf(tab);
-                if (isAfter)
-                    index++;
-
-                Items.Insert(index, draggedTab);
-                return;
+                hovered = tab;
+                index = i;
+                return true;
             }
         }
 
-        if (Items[^1] != draggedTab)
-        {
-            Items.Remove(draggedTab);
-            Items.Add(draggedTab);
-            return;
-        }
+        hovered = null;
+        index = -1;
+        return false;
     }
 
     private void OnTabBarLeft(PointerEventArgs e)
@@ -263,34 +304,32 @@ public class DockingTabControl : TabControl
         Items.Remove(tabItem);
 
         _draggedTab = null;
+        _draggedTabGhost = null;
         _draggedOutTabHandler.Invoke(this, e, tabItem, offset);
     }
 
-    public void OnDragForeignTabOver(PointerEventArgs e, Size tabSize, object? tabHeader)
+    private TabItem _appendPlaceholderTab = new DummyTabItem
     {
+        Opacity = 0.5
+    };
+
+    public void OnDragForeignTabOver(PointerEventArgs e, Size tabContentSize, Size tabItemSize)
+    {
+        _appendPlaceholderTab.Width = tabItemSize.Width;
+        _appendPlaceholderTab.Height = tabItemSize.Height;
+
+        if (!Items.Contains(_appendPlaceholderTab))
+            Items.Add(_appendPlaceholderTab);
+
         var oldValue = _draggedForeignTabForDrop;
         var hitPoint = e.GetPosition(this);
         if (Bounds.WithX(0).WithY(0).Contains(hitPoint))
-            _draggedForeignTabForDrop = (tabSize, EvaluateDropTarget(e));
+            _draggedForeignTabForDrop = (tabContentSize, EvaluateDropTarget(e));
         else
             _draggedForeignTabForDrop = null;
 
         if (_draggedForeignTabForDrop == oldValue)
             return;
-
-        if (_draggedForeignTabForDrop.HasValue &&
-            _draggedForeignTabForDrop.Value.dropTarget.IsTabBar(out int tabIndex))
-        {
-            _tabDropIndicator.Header = tabHeader;
-
-
-            Items.Remove(_tabDropIndicator);
-            Items.Insert(tabIndex, _tabDropIndicator);
-        }
-        else
-        {
-            Items.Remove(_tabDropIndicator);
-        }
 
         InvalidateVisual();
     }
@@ -299,30 +338,8 @@ public class DockingTabControl : TabControl
     {
         Point hitPoint = e.GetPosition(this);
 
-        {
-            int index = Items.IndexOf(_tabDropIndicator);
-
-            if (index != -1 && GetBounds(_tabDropIndicator).Contains(hitPoint))
+        if (TryGetHoveredTabItem(e, out int index, out _))
                 return DropTarget.TabBar(index);
-        }
-
-        {
-
-            int iTab = 0;
-            foreach (var item in Items)
-            {
-                if (item == _tabDropIndicator)
-                    continue;
-
-                if (GetBounds((TabItem)Items[iTab]!).Contains(hitPoint))
-                    return DropTarget.TabBar(iTab);
-
-                iTab++;
-            }
-
-            if (TryGetTabBarRect(out Rect rect) && rect.Contains(hitPoint))
-                return DropTarget.TabBar(iTab);
-        }
 
         Span<Rect> rects = stackalloc Rect[9];
         Evaluate3x3DockIndicatorRects(rects, out _);
@@ -348,7 +365,7 @@ public class DockingTabControl : TabControl
     public void OnEndDragForeignTab()
     {
         _draggedForeignTabForDrop = null;
-        Items.Remove(_tabDropIndicator);
+        Items.Remove(_appendPlaceholderTab);
 
         InvalidateVisual();
     }
@@ -366,7 +383,7 @@ public class DockingTabControl : TabControl
         }
         if (change.Property == DockIndicatorFieldHoveredFillProperty)
         {
-            _tabDropIndicator.Background = DockIndicatorFieldHoveredFill;
+            InvalidateVisual();
             return;
         }
     }
@@ -387,7 +404,18 @@ public class DockingTabControl : TabControl
         var splitWidth = Math.Min(tabSize.Width, Bounds.Width / 2);
         var splitHeight = Math.Min(tabSize.Height, Bounds.Height / 2);
 
-        if (dropTarget.IsFill())
+        if (dropTarget.IsTabBar(out int tabIndex))
+        {
+            var item = Items[tabIndex];
+            if (item is TabItem tabItem)
+            {
+                var bounds = GetBounds(tabItem)
+                    .WithWidth(_appendPlaceholderTab.Width)
+                    .WithHeight(_appendPlaceholderTab.Height);
+                context.FillRectangle(brush, bounds);
+            }
+        }
+        else if (dropTarget.IsFill())
             context.FillRectangle(brush, Bounds.WithX(0).WithY(0));
 
         else if (dropTarget.IsDock(Dock.Top))
@@ -484,4 +512,45 @@ public class DockingTabControl : TabControl
         rect = GetBounds(tabBarPanel);
         return true;
     }
+
+    private class RearrangeDeflickerer
+    {
+        private object? _hoveredObjectAfterRearrange = null;
+        private bool _hasUnaccountedRearrange = false;
+
+        public void SetRearranged()
+        {
+            _hoveredObjectAfterRearrange = null;
+            _hasUnaccountedRearrange = true;
+        }
+
+        public void Evaluate(object hovered, out bool isValid)
+        {
+            if (_hasUnaccountedRearrange)
+            {
+                _hoveredObjectAfterRearrange = hovered;
+                _hasUnaccountedRearrange = false;
+                isValid = false;
+                return;
+            }
+
+            if (hovered == _hoveredObjectAfterRearrange)
+            {
+                isValid = false;
+                return;
+            }
+
+            _hoveredObjectAfterRearrange = null;
+            isValid = true;
+            return;
+        }
+
+        public void Reset()
+        {
+            _hoveredObjectAfterRearrange = null;
+            _hasUnaccountedRearrange = false;
+        }
+    }
+
+    private class DummyTabItem : TabItem { }
 }
