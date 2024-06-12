@@ -112,8 +112,6 @@ public class DockingTabControl : TabControl
     { get => GetValue(DockIndicatorFieldStrokeThicknessProperty); set => SetValue(DockIndicatorFieldStrokeThicknessProperty, value); }
     #endregion
 
-    public delegate void DraggedOutTabHandler(object? sender, PointerEventArgs e, TabItem itemRef, Point offset);
-
     public void RegisterDraggedOutTabHanlder(DraggedOutTabHandler handler)
     {
         if (_draggedOutTabHandler != null)
