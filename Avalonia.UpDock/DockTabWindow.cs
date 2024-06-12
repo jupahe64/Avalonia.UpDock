@@ -1,4 +1,6 @@
 ﻿using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -19,7 +21,8 @@ internal class DockTabWindow : Window
     private IBrush? _tabItemBackground = null;
     private IPen _borderPen = new Pen(Brushes.Gray, 1);
     private TabItem _tabItem;
-    private TabControl _tabControl;
+    private readonly Size _contentSize;
+    private HookedTabControl _tabControl;
 
     private DragInfo? _dragInfo = null;
 
@@ -42,10 +45,14 @@ internal class DockTabWindow : Window
         return _tabItem;
     }
 
-    public DockTabWindow(TabItem tabItem)
+    public DockTabWindow(TabItem tabItem, Size contentSize)
     {
-        _tabItem = tabItem;
+        #if DEBUG
+        this.AttachDevTools();
+        #endif
 
+        _tabItem = tabItem;
+        _contentSize = contentSize;
         _tabItem.PointerPressed += TabItem_PointerPressed;
         _tabItem.PointerMoved += TabItem_PointerMoved;
         _tabItem.PointerReleased += TabItem_PointerReleased;
@@ -56,13 +63,44 @@ internal class DockTabWindow : Window
         _tabItemBackground = tabItem.Background;
 
 
-        _tabControl = new TabControl()
+        _tabControl = new HookedTabControl()
         {
             Background = Brushes.Transparent, //just to be save
         };
         _tabControl.Items.Add(tabItem);
 
+        SizeToContent = SizeToContent.WidthAndHeight;
         Content = _tabControl;
+
+        _tabControl.LayoutUpdated += TabControl_LayoutUpdated;
+        _tabControl.Padding = new Thickness(0);
+    }
+
+    private void TabControl_LayoutUpdated(object? sender, EventArgs e)
+    {
+        if (_tabControl.Bounds.Size == default)
+            return;
+
+        var presenter = _tabControl.ContentPresenter;
+        if (presenter != null)
+        {
+            var extraWidth = _tabControl.Bounds.Width - presenter.Bounds.Width;
+            var extraHeight = _tabControl.Bounds.Height - presenter.Bounds.Height;
+            
+            //probably not needed
+            extraWidth += Width - _tabControl.Bounds.Width;
+            extraHeight += Height - _tabControl.Bounds.Height;
+
+            var newWidth = Math.Max(Width, _contentSize.Width + extraWidth);
+            var newHeight = Math.Max(Height, _contentSize.Height + extraHeight);
+
+            SizeToContent = SizeToContent.Manual;
+
+            Width = newWidth;
+            Height = newHeight;
+        }
+
+        _tabControl.LayoutUpdated -= TabControl_LayoutUpdated;
     }
 
     private bool _isTabItemClosed = false;
@@ -159,5 +197,17 @@ internal class DockTabWindow : Window
 
         Position = this.PointToScreen(e.GetPosition(this) - offset);
         Dragging?.Invoke(this, e);
+    }
+
+    private class HookedTabControl : TabControl
+    {
+        public ContentPresenter? ContentPresenter { get; private set; }
+        protected override Type StyleKeyOverride => typeof(TabControl);
+
+        protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
+        {
+            base.OnApplyTemplate(e);
+            ContentPresenter = e.NameScope.Find<ContentPresenter>("PART_SelectedContentHost");
+        }
     }
 }

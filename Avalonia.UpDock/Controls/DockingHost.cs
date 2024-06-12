@@ -210,16 +210,19 @@ public class DockingHost : DockPanel
     #endregion
 
     private void TabControl_DraggedOutTab(object? sender, PointerEventArgs e,
-        TabItem tabItem, Point offset)
+        TabItem tabItem, Point offset, Size contentSize)
     {
         var tabControl = (DockingTabControl)sender!;
         var hostWindow = GetHostWindow();
 
-        var window = new DockTabWindow(tabItem)
+        var root = tabControl.ItemsPanelRoot;
+
+        var window = new DockTabWindow(tabItem, contentSize)
         {
             Width = tabControl.Bounds.Width,
             Height = tabControl.Bounds.Height,
-            SystemDecorations = SystemDecorations.None
+            SystemDecorations = SystemDecorations.None,
+            Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset)
         };
 
 

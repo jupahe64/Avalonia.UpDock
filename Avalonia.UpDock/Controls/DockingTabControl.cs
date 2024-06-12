@@ -16,7 +16,7 @@ namespace Avalonia.UpDock.Controls;
 
 public class DockingTabControl : TabControl
 {
-    #region DropTarget "enum"
+    public delegate void DraggedOutTabHandler(object? sender, PointerEventArgs e, TabItem itemRef, Point offset, Size contentSize);
     public struct DropTarget : IEquatable<DropTarget>
     {
         private Dock _dock;
@@ -137,11 +137,13 @@ public class DockingTabControl : TabControl
 
     private (Size dropTabSize, DropTarget dropTarget)? _draggedForeignTabForDrop = null;
     private ItemsPresenter? _itemsPresenterPart;
+    private ContentPresenter? _contentPresenterPart;
 
     public DockingTabControl()
     {
         IsHitTestVisible = true;
         Items.CollectionChanged += Items_CollectionChanged;
+        Padding = new Thickness(0);
     }
 
     private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -309,7 +311,7 @@ public class DockingTabControl : TabControl
         _draggedTab = null;
         _draggedTabGhost = null;
 
-        handler.Invoke(this, e, tabItem, offset);
+        handler.Invoke(this, e, tabItem, offset, _contentPresenterPart?.Bounds.Size ?? Bounds.Size);
     }
 
     private TabItem _appendPlaceholderTab = new DummyTabItem
@@ -502,6 +504,7 @@ public class DockingTabControl : TabControl
         base.OnApplyTemplate(e);
 
         _itemsPresenterPart = e.NameScope.Find<ItemsPresenter>("PART_ItemsPresenter");
+        _contentPresenterPart = e.NameScope.Find<ContentPresenter>("PART_SelectedContentHost");
     }
 
     private bool TryGetTabBarRect(out Rect rect)
