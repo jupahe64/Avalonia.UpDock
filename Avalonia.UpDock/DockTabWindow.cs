@@ -13,6 +13,7 @@ internal class DockTabWindow : Window
 {
     public Size TabContentSize { get; private set; }
     public Size TabItemSize { get; private set; }
+    public Size TabControlSize { get; private set; }
     public object? TabHeader => _tabItem.Header;
 
     private record DragInfo(Point Offset);
@@ -103,6 +104,14 @@ internal class DockTabWindow : Window
         _tabControl.LayoutUpdated -= TabControl_LayoutUpdated;
     }
 
+    protected override void ArrangeCore(Rect finalRect)
+    {
+        base.ArrangeCore(finalRect);
+        TabContentSize = _tabControl.ContentPresenter?.Bounds.Size ?? _tabControl.Bounds.Size;
+        TabItemSize = _tabItem.Bounds.Size;
+        TabControlSize = _tabControl.Bounds.Size;
+    }
+
     private bool _isTabItemClosed = false;
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -164,10 +173,6 @@ internal class DockTabWindow : Window
         Point bottomRight = _tabItem.TranslatePoint(new Point(_tabItem.Bounds.Width, _tabItem.Bounds.Height), this)!.Value;
 
         var rect = Bounds.WithY(bottomRight.Y).WithHeight(Bounds.Height - bottomRight.Y);
-
-        //probably fine
-        TabContentSize = rect.Size;
-        TabItemSize = _tabItem.Bounds.Size;
 
         context.FillRectangle(_tabBackground!, new Rect(topLeft, bottomRight));
         context.FillRectangle(_tabBackground!, rect);

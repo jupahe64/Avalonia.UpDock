@@ -1,20 +1,101 @@
 ﻿using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using static Avalonia.UpDock.Controls.DockingTabControl;
 using LIST_MODIFY_HANDLER = System.Collections.Specialized.NotifyCollectionChangedEventHandler;
 
 namespace Avalonia.UpDock.Controls;
 
-public class DockingHost : DockPanel
+public partial class DockingHost : DockPanel
 {
+    public record struct TabInfo(object? Header, Size TabItemSize, Size ContentSize, Size TabControlSize);
+
+    public DockingHost()
+    {
+        _overlayWindow = new DockingOverlayWindow(this);
+        _overlayWindow.SystemDecorations = SystemDecorations.None;
+        _overlayWindow.Background = null;
+        _overlayWindow.Opacity = 0.5;
+        _overlayWindow.AreaEntered += OverlayWindow_AreaEntered;
+        _overlayWindow.AreaExited += OverlayWindow_AreaExited;
+    }
+
+    private DockingOverlayWindow _overlayWindow;
+
     private DockTabWindow? _draggedWindow;
     private readonly HashSet<SplitPanel> _ignoreModified = [];
+
+    private IPen _dockIndicatorStrokePen = new Pen(
+        DockIndicatorFieldStrokeProperty.GetDefaultValue(typeof(DockingTabControl)),
+        DockIndicatorFieldStrokeThicknessProperty.GetDefaultValue(typeof(DockingTabControl)));
+
+    #region Properties
+    public static StyledProperty<double> DockIndicatorFieldSizeProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, double>(nameof(DockIndicatorFieldSize), 40);
+
+    public static StyledProperty<double> DockIndicatorFieldSpacingProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, double>(nameof(DockIndicatorFieldSpacing), 10);
+
+    public static StyledProperty<float> DockIndicatorFieldCornerRadiusProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, float>(nameof(DockIndicatorFieldCornerRadius), 5);
+
+    public static StyledProperty<IBrush> DockIndicatorFieldFillProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, IBrush>(nameof(DockIndicatorFieldFill), new SolidColorBrush(Colors.CornflowerBlue, 0.5));
+    public static StyledProperty<IBrush> DockIndicatorFieldHoveredFillProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, IBrush>(nameof(DockIndicatorFieldHoveredFill), new SolidColorBrush(Colors.CornflowerBlue));
+
+    public static StyledProperty<IBrush> DockIndicatorFieldStrokeProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, IBrush>(nameof(DockIndicatorFieldStroke), Brushes.CornflowerBlue);
+
+    public static StyledProperty<double> DockIndicatorFieldStrokeThicknessProperty { get; private set; } =
+        AvaloniaProperty.Register<DockingTabControl, double>(nameof(DockIndicatorFieldStrokeThickness), 1);
+
+    public double DockIndicatorFieldSize
+    { get => GetValue(DockIndicatorFieldSizeProperty); set => SetValue(DockIndicatorFieldSizeProperty, value); }
+    public double DockIndicatorFieldSpacing
+    { get => GetValue(DockIndicatorFieldSpacingProperty); set => SetValue(DockIndicatorFieldSpacingProperty, value); }
+    public float DockIndicatorFieldCornerRadius
+    { get => GetValue(DockIndicatorFieldCornerRadiusProperty); set => SetValue(DockIndicatorFieldCornerRadiusProperty, value); }
+    public IBrush DockIndicatorFieldFill
+    { get => GetValue(DockIndicatorFieldFillProperty); set => SetValue(DockIndicatorFieldFillProperty, value); }
+    public IBrush DockIndicatorFieldHoveredFill
+    { get => GetValue(DockIndicatorFieldHoveredFillProperty); set => SetValue(DockIndicatorFieldHoveredFillProperty, value); }
+    public IBrush DockIndicatorFieldStroke
+    { get => GetValue(DockIndicatorFieldStrokeProperty); set => SetValue(DockIndicatorFieldStrokeProperty, value); }
+    public double DockIndicatorFieldStrokeThickness
+    { get => GetValue(DockIndicatorFieldStrokeThicknessProperty); set => SetValue(DockIndicatorFieldStrokeThicknessProperty, value); }
+
+    public IPen DockIndicatorStrokePen => _dockIndicatorStrokePen;
+
+    public TabInfo? DraggedTabInfo => _draggedWindow == null
+                ? null
+                : new TabInfo(_draggedWindow.TabHeader, _draggedWindow.TabItemSize, 
+                    _draggedWindow.TabContentSize, _draggedWindow.TabControlSize);
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == DockIndicatorFieldStrokeProperty ||
+            change.Property == DockIndicatorFieldStrokeThicknessProperty)
+        {
+            _dockIndicatorStrokePen = new Pen(DockIndicatorFieldStroke, DockIndicatorFieldStrokeThickness);
+            InvalidateVisual();
+            return;
+        }
+        if (change.Property == DockIndicatorFieldHoveredFillProperty)
+        {
+            InvalidateVisual();
+            return;
+        }
+    }
+    #endregion
 
     protected override void ChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
@@ -39,6 +120,13 @@ public class DockingHost : DockPanel
             else if (child is TabControl tabControl)
                 RegisterTabControlForDocking(tabControl);
         }
+    }
+
+    protected override void ArrangeCore(Rect finalRect)
+    {
+        base.ArrangeCore(finalRect);
+        if (_overlayWindow.IsVisible)
+            _overlayWindow.UpdateAreas();
     }
 
     private Window GetHostWindow()
@@ -91,8 +179,6 @@ public class DockingHost : DockPanel
     private void RegisterTabControlForDocking(TabControl tabControl)
     {
         Debug.Assert(!_registeredTabControls.ContainsKey(tabControl));
-        Debug.WriteLine($"Registering " +
-            $"{string.Join(' ',tabControl.Items.OfType<TabItem>().Select(x => x.Header))}");
 
         LIST_MODIFY_HANDLER handler = (_, _) => TabControl_ItemsModified(tabControl);
         tabControl.Items.CollectionChanged += handler;
@@ -104,9 +190,6 @@ public class DockingHost : DockPanel
 
     private void UnregisterTabControl(TabControl tabControl)
     {
-        Debug.WriteLine($"Unregistering " +
-            $"{string.Join(' ', tabControl.Items.OfType<TabItem>().Select(x => x.Header))}");
-
         Debug.Assert(_registeredTabControls.Remove(tabControl, out var handler));
         tabControl.Items.CollectionChanged -= handler;
 
@@ -225,9 +308,6 @@ public class DockingHost : DockPanel
             Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset)
         };
 
-
-        window.Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset);
-
         window.Show(hostWindow);
 
         ChildWindowMoveHandler.Hookup(hostWindow, window);
@@ -238,64 +318,64 @@ public class DockingHost : DockPanel
         window.DragEnd += DockTabWindow_DragEnd;
     }
 
+    private void OverlayWindow_AreaExited(object? sender, DockingOverlayWindow.AreaExitedEventArgs e)
+    {
+        if (e.Control is TabControl tabControl)
+        {
+            var item = tabControl.Items.FirstOrDefault(x => x is DummyTabItem);
+
+            if (item != null)
+                tabControl.Items.Remove(item);
+        }
+    }
+
+    private void OverlayWindow_AreaEntered(object? sender, DockingOverlayWindow.AreaEnteredEventArgs e)
+    {
+        Debug.Assert(_draggedWindow != null);
+
+        if (e.Control is TabControl tabControl)
+        {
+            var item = tabControl.Items.FirstOrDefault(x => x is DummyTabItem);
+
+            if (item != null)
+                tabControl.Items.Remove(item);
+
+            tabControl.Items.Add(new DummyTabItem(DockIndicatorStrokePen)
+            {
+                Width = _draggedWindow.TabItemSize.Width,
+                Height = _draggedWindow.TabItemSize.Height,
+                Opacity = 0.5
+            });
+        }
+    }
+
     private void DockTabWindow_Dragging(object? sender, PointerEventArgs e)
     {
-        var window = (DockTabWindow)sender!;
-
-        Point hitPoint = e.GetPosition(GetHostWindow());
-        VisitDockingTabControls((tabControl) =>
+        _draggedWindow = (DockTabWindow)sender!;
+        if (!_overlayWindow.IsVisible)
         {
-            tabControl.OnDragForeignTabOver(e, window.TabContentSize, window.TabItemSize);
-        });
-    }
-
-    public void VisitDockingTabControls(Action<DockingTabControl> visitor)
-    {
-        foreach (var child in Children)
-        {
-            if (child is DockingTabControl dockingTabControl)
-                visitor(dockingTabControl);
-            else if (child is SplitPanel childSplitPanel)
-                VisitDockingTabControls(childSplitPanel, visitor);
+            _overlayWindow.Position = this.PointToScreen(new Point());
+            _overlayWindow.Width = Bounds.Width;
+            _overlayWindow.Height = Bounds.Height;
+            _overlayWindow.Show();
         }
-    }
 
-    public static void VisitDockingTabControls(SplitPanel splitPanel, Action<DockingTabControl> visitor)
-    {
-        foreach (var child in splitPanel.Children)
-        {
-            if (child is DockingTabControl dockingTabControl)
-                visitor(dockingTabControl);
-            else if (child is SplitPanel childSplitPanel)
-                VisitDockingTabControls(childSplitPanel, visitor);
-        }
+        _overlayWindow.OnPointerMoved(e);
     }
-
 
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
+        Debug.Assert(DraggedTabInfo.HasValue);
+
+        TabInfo tabInfo = DraggedTabInfo.Value;
+        Control? dropTargetControl = _overlayWindow.HoveredControl;
+        DropTarget dropTarget = _overlayWindow.HoveredDropTarget;
+
+        _overlayWindow.Hide();
+        _draggedWindow = null;
         Point hitPoint = e.GetPosition(this);
 
-        DockingTabControl? dropTabControl = null;
-        DropTarget dropTarget = DropTarget.None;
-
-        VisitDockingTabControls((tabControl) =>
-        {
-            var _dropTarget = tabControl.EvaluateDropTarget(e);
-
-            tabControl.OnEndDragForeignTab();
-
-            if (!HitTest(tabControl, hitPoint))
-                return;
-
-            if (_dropTarget.IsNone())
-                return;
-
-            dropTabControl = tabControl;
-            dropTarget = _dropTarget;
-        });
-
-        if (dropTabControl == null)
+        if (dropTargetControl == null || dropTarget.IsNone())
             return;
 
         DockTabWindow window = (DockTabWindow)sender!;
@@ -304,34 +384,52 @@ public class DockingHost : DockPanel
 
         if (dropTarget.IsTabBar(out int index))
         {
-            dropTabControl.Items.Insert(index, tabItem);
+            if (dropTargetControl is not TabControl tabControl)
+            {
+                Debug.Fail("Invalid dropTarget for control");
+                return;
+            }
+
+            tabControl.Items.Insert(index, tabItem);
             return;
         }
 
         if (dropTarget.IsFill())
         {
-            dropTabControl.Items.Add(tabItem);
+            if (dropTargetControl is not TabControl tabControl)
+            {
+                Debug.Fail("Invalid dropTarget for control");
+                return;
+            }
+
+            tabControl.Items.Add(tabItem);
             return;
         }
 
         if (dropTarget.IsDock(out Dock dock))
         {
-            SplitPanel parent = (SplitPanel)dropTabControl.Parent!;
+            SplitPanel parent = (SplitPanel)dropTargetControl.Parent!;
 
             Orientation splitOrientation = dock switch
             {
                 Dock.Left or Dock.Right => Orientation.Horizontal,
                 Dock.Top or Dock.Bottom => Orientation.Vertical,
-                _ => throw new NotImplementedException()
+                _ => throw null!
             };
 
             TabControl newTabControl = CreateTabControl(tabItem);
-            var dropSlot = parent.Children.IndexOf(dropTabControl);
+            var dropSlot = parent.Children.IndexOf(dropTargetControl);
 
-            parent.GetSlotSize(dropSlot, out int size, out Size size2D);
+            parent.GetSlotSize(dropSlot, out _, out Size slotSize);
 
-            int insertSlotSize = size / 2;
-            int otherSlotSize = size - insertSlotSize;
+            var dockSize = CalculateDockRect(tabInfo, new Rect(default, slotSize), dock).Size;
+
+            (int insertSlotSize, int otherSlotSize) = dock switch
+            {
+                Dock.Left or Dock.Right => ((int)dockSize.Width, (int)(slotSize.Width - dockSize.Width)),
+                Dock.Top or Dock.Bottom => ((int)dockSize.Height, (int)(slotSize.Height - dockSize.Height)),
+                _ => throw null!
+            };
 
             if (parent.TrySplitSlot(dropSlot, (dock, insertSlotSize, newTabControl), otherSlotSize))
                 return;
@@ -339,13 +437,13 @@ public class DockingHost : DockPanel
             if (dock is Dock.Left or Dock.Top)
             {
                 InsertSplitPanel(splitOrientation,
-                    (insertSlotSize, newTabControl), (otherSlotSize, dropTabControl),
+                    (insertSlotSize, newTabControl), (otherSlotSize, dropTargetControl),
                     panel => parent.Children[dropSlot] = panel);
             }
             else
             {
                 InsertSplitPanel(splitOrientation,
-                    (otherSlotSize, dropTabControl), (insertSlotSize, newTabControl),
+                    (otherSlotSize, dropTargetControl), (insertSlotSize, newTabControl),
                     panel => parent.Children[dropSlot] = panel);
             }
         }
@@ -373,13 +471,47 @@ public class DockingHost : DockPanel
         _draggedWindow.OnDragging(e);
     }
 
-    private bool HitTest(Visual visual, Point hitPoint)
+    public void VisitDockingTreeNodes<T>(Action<T> visitor)
+        where T : Control
     {
-        Point topLeft = visual.TranslatePoint(new Point(0, 0), this)!.Value;
-        Point bottomRight = visual.TranslatePoint(new Point(visual.Bounds.Width, visual.Bounds.Height), this)!.Value;
-        return
-            topLeft.X <= hitPoint.X && hitPoint.X <= bottomRight.X &&
-            topLeft.Y <= hitPoint.Y && hitPoint.Y <= bottomRight.Y;
+        foreach (var child in Children)
+        {
+            if (child is SplitPanel childSplitPanel)
+                VisitDockingTreeNodes(childSplitPanel, visitor);
+            else if (child is T dockingTabControl)
+                visitor(dockingTabControl);
+        }
+    }
+
+    public static void VisitDockingTreeNodes<T>(SplitPanel splitPanel, Action<T> visitor)
+        where T : Control
+    {
+        foreach (var child in splitPanel.Children)
+        {
+            if (child is SplitPanel childSplitPanel)
+                VisitDockingTreeNodes(childSplitPanel, visitor);
+            else if (child is T node)
+                visitor(node);
+        }
+    }
+
+    public static Rect CalculateDockRect(TabInfo tabInfo, Rect fitBounds, Dock dock)
+    {
+        var clampedWidth = Math.Min(tabInfo.TabControlSize.Width, fitBounds.Width / 2);
+        var clampedHeight = Math.Min(tabInfo.TabControlSize.Height, fitBounds.Height / 2);
+
+        return dock switch
+        {
+            Dock.Left => fitBounds.WithWidth(clampedWidth),
+            Dock.Top => fitBounds.WithHeight(clampedHeight),
+            Dock.Right => new Rect(
+                                        fitBounds.TopLeft.WithX(fitBounds.Right - clampedWidth),
+                                        fitBounds.BottomRight),
+            Dock.Bottom => new Rect(
+                                        fitBounds.TopLeft.WithY(fitBounds.Bottom - clampedHeight),
+                                        fitBounds.BottomRight),
+            _ => throw new InvalidEnumArgumentException(nameof(dock), (int)dock, typeof(Dock)),
+        };
     }
 
     private class ChildWindowMoveHandler
@@ -421,6 +553,14 @@ public class DockingHost : DockPanel
             _child = child;
             _parent = parent;
             _lastParentWindowBounds = (parent.Position, parent.FrameSize.GetValueOrDefault());
+        }
+    }
+
+    private class DummyTabItem(IPen pen) : TabItem 
+    {
+        public override void Render(DrawingContext ctx)
+        {
+            ctx.DrawRectangle(pen, Bounds.WithX(0).WithY(0), 4);
         }
     }
 }
