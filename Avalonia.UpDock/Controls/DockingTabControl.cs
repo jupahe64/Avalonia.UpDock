@@ -17,6 +17,7 @@ namespace Avalonia.UpDock.Controls;
 public class DockingTabControl : TabControl
 {
     public delegate void DraggedOutTabHandler(object? sender, PointerEventArgs e, TabItem itemRef, Point offset, Size contentSize);
+    #region DropTarget "Enum"
     public struct DropTarget : IEquatable<DropTarget>
     {
         private Dock _dock;
