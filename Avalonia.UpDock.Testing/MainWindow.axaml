@@ -23,6 +23,27 @@
 			</MenuItem>
 		</Menu>
 		<up:DockingHost>
+			<up:DockingTabControl DockPanel.Dock="Bottom" Height="200">
+				<up:ClosableTabItem Header="Tab 5.1" HeaderTemplate="{DynamicResource TabTemplate}">
+					<StackPanel>
+						<TextBlock Text="This is tab 4.1 content" />
+					</StackPanel>
+				</up:ClosableTabItem>
+			</up:DockingTabControl>
+			<up:DockingTabControl DockPanel.Dock="Right" Width="400">
+				<up:ClosableTabItem Header="Tab 5.1" HeaderTemplate="{DynamicResource TabTemplate}">
+					<StackPanel>
+						<TextBlock Text="This is tab 4.1 content" />
+					</StackPanel>
+				</up:ClosableTabItem>
+			</up:DockingTabControl>
+			<up:DockingTabControl DockPanel.Dock="Bottom">
+				<up:ClosableTabItem Header="Tab 4.1" HeaderTemplate="{DynamicResource TabTemplate}">
+					<StackPanel>
+						<TextBlock Text="This is tab 4.1 content" />
+					</StackPanel>
+				</up:ClosableTabItem>
+			</up:DockingTabControl>
 			<up:SplitPanel Fractions="1, 1, 2" Orientation="Horizontal">
 				<up:DockingTabControl>
 					<up:ClosableTabItem Header="Tab 1.1" HeaderTemplate="{DynamicResource TabTemplate}">

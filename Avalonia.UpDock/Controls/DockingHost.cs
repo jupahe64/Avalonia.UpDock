@@ -12,7 +12,7 @@ using LIST_MODIFY_HANDLER = System.Collections.Specialized.NotifyCollectionChang
 
 namespace Avalonia.UpDock.Controls;
 
-public partial class DockingHost : DockPanel
+public partial class DockingHost : DockSplitPanel
 {
     public record struct TabInfo(object? Header, Size TabItemSize, Size ContentSize, Size TabControlSize);
 
