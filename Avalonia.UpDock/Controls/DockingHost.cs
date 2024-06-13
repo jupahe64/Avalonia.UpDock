@@ -18,15 +18,10 @@ public partial class DockingHost : DockPanel
 
     public DockingHost()
     {
-        _overlayWindow = new DockingOverlayWindow(this);
-        _overlayWindow.SystemDecorations = SystemDecorations.None;
-        _overlayWindow.Background = null;
-        _overlayWindow.Opacity = 0.5;
-        _overlayWindow.AreaEntered += OverlayWindow_AreaEntered;
-        _overlayWindow.AreaExited += OverlayWindow_AreaExited;
+        
     }
 
-    private DockingOverlayWindow _overlayWindow;
+    private DockingOverlayWindow? _overlayWindow;
 
     private DockTabWindow? _draggedWindow;
     private readonly HashSet<SplitPanel> _ignoreModified = [];
@@ -125,8 +120,7 @@ public partial class DockingHost : DockPanel
     protected override void ArrangeCore(Rect finalRect)
     {
         base.ArrangeCore(finalRect);
-        if (_overlayWindow.IsVisible)
-            _overlayWindow.UpdateAreas();
+        _overlayWindow?.UpdateAreas(); //probably not needed
     }
 
     private Window GetHostWindow()
@@ -352,13 +346,26 @@ public partial class DockingHost : DockPanel
     private void DockTabWindow_Dragging(object? sender, PointerEventArgs e)
     {
         _draggedWindow = (DockTabWindow)sender!;
-        if (!_overlayWindow.IsVisible)
+
+        if (_overlayWindow == null)
         {
-            _overlayWindow.Position = this.PointToScreen(new Point());
-            _overlayWindow.Width = Bounds.Width;
-            _overlayWindow.Height = Bounds.Height;
-            _overlayWindow.Show();
+            _overlayWindow = new DockingOverlayWindow(this)
+            {
+                SystemDecorations = SystemDecorations.None,
+                Background = null,
+                Opacity = 0.5
+            };
+
+            _overlayWindow.AreaEntered += OverlayWindow_AreaEntered;
+            _overlayWindow.AreaExited += OverlayWindow_AreaExited;
         }
+        
+        _overlayWindow.Position = this.PointToScreen(new Point());
+        _overlayWindow.Width = Bounds.Width;
+        _overlayWindow.Height = Bounds.Height;
+
+        _overlayWindow.UpdateAreas();
+        _overlayWindow.Show(GetHostWindow());
 
         _overlayWindow.OnPointerMoved(e);
     }
@@ -366,12 +373,14 @@ public partial class DockingHost : DockPanel
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
         Debug.Assert(DraggedTabInfo.HasValue);
+        Debug.Assert(_overlayWindow != null);
 
         TabInfo tabInfo = DraggedTabInfo.Value;
         Control? dropTargetControl = _overlayWindow.HoveredControl;
         DropTarget dropTarget = _overlayWindow.HoveredDropTarget;
 
-        _overlayWindow.Hide();
+        _overlayWindow.Close();
+        _overlayWindow = null;
         _draggedWindow = null;
         Point hitPoint = e.GetPosition(this);
 
