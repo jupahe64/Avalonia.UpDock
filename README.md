@@ -22,11 +22,14 @@ This should in theory also make this library future proof.
 - Rearrange Tabs
 - Close Tabs
 - Drag Tab out of TabControl to create a new floating window
-- Drag Tab into another TabControl, that's part of the same docking host (DockingManager), to add it as a tab
-- Drag Tab into another TabControl to create a new split and Dock it there
+- Drag Tab into another TabControl, that's a descendant of the same DockingHost, to add it as a tab
+- Drag Tab into another Control '' to create a new split and "Dock" it there
+- Drag Tab into another Control '' to truly Dock it there and push the other control(s) aside
+- Drag Tab to the border of the docking host ''
 
 ## Getting started
-Add DockingHost, Design a Layout using SplitPanels (make sure to set Fractions) and fill the slots with Children of type DockingTabControl.
+Add DockingHost, Design a Layout using SplitPanels (make sure to set Fractions and Orientation) and fill the slots with Children of type SplitPanel or DockingTabControl.  
+*Technically you can use any Control but only DockingTabControl supports dragging tabs out*
 
 ### An Example
 
