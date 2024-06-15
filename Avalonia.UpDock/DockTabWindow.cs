@@ -57,6 +57,7 @@ internal class DockTabWindow : Window
         _tabItem.PointerPressed += TabItem_PointerPressed;
         _tabItem.PointerMoved += TabItem_PointerMoved;
         _tabItem.PointerReleased += TabItem_PointerReleased;
+        _tabItem.PointerCaptureLost += TabItem_PointerCaptureLost;
 
         if (_tabItem is ClosableTabItem closable)
             closable.Closed += TabItem_Closed;
@@ -144,6 +145,8 @@ internal class DockTabWindow : Window
     private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
     private void TabItem_PointerReleased(object? sender, PointerEventArgs e) => OnDragEnd(e);
 
+    private void TabItem_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => OnCaptureLost(e);
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -180,10 +183,13 @@ internal class DockTabWindow : Window
         base.Render(context);
     }
 
+    private PointerEventArgs? _lastPointerEvent = null;
+
     public void OnDragStart(PointerEventArgs e)
     {
         SystemDecorations = SystemDecorations.None;
         _dragInfo = new(e.GetPosition(this));
+        _lastPointerEvent = e;
     }
 
     public void OnDragEnd(PointerEventArgs e)
@@ -191,6 +197,7 @@ internal class DockTabWindow : Window
         _dragInfo = null;
         DragEnd?.Invoke(this, e);
         SystemDecorations = SystemDecorations.Full;
+        _lastPointerEvent = null;
     }
 
     public void OnDragging(PointerEventArgs e)
@@ -198,10 +205,18 @@ internal class DockTabWindow : Window
         if (_dragInfo == null)
             return;
 
+        _lastPointerEvent = e;
+
         Point offset = _dragInfo.Offset;
 
         Position = this.PointToScreen(e.GetPosition(this) - offset);
         Dragging?.Invoke(this, e);
+    }
+
+    public void OnCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        if (_lastPointerEvent != null)
+            OnDragEnd(_lastPointerEvent);
     }
 
     private class HookedTabControl : TabControl

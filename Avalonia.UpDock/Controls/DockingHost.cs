@@ -525,23 +525,21 @@ public partial class DockingHost : DockSplitPanel
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        _draggedWindow?.OnDragEnd(e);
+        _draggedWindow = null;
+    }
 
-        if (_draggedWindow is null)
-            return;
-
-        _draggedWindow.OnDragEnd(e);
-
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        _draggedWindow?.OnCaptureLost(e);
         _draggedWindow = null;
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-
-        if (_draggedWindow is null)
-            return;
-
-        _draggedWindow.OnDragging(e);
+        _draggedWindow?.OnDragging(e);
     }
 
     public bool CanFill(Control control) => control is TabControl;
