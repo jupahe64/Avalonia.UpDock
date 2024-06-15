@@ -32,11 +32,12 @@ internal class DockTabWindow : Window
 
     public TabItem DetachTabItem()
     {
-        _tabControl.Items.Clear();
-
         _tabItem.PointerPressed -= TabItem_PointerPressed;
         _tabItem.PointerMoved -= TabItem_PointerMoved;
         _tabItem.PointerReleased -= TabItem_PointerReleased;
+        _tabItem.PointerCaptureLost -= TabItem_PointerCaptureLost;
+
+        _tabControl.Items.Clear();
 
         if (_tabItem is ClosableTabItem closable)
             closable.Closed -= TabItem_Closed;
