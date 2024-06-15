@@ -192,8 +192,15 @@ internal class DockingOverlayWindow : Window
             }
             else if (_hoveredDropTarget.IsNeighborDock(out dock))
             {
-                var rect = CalcNeighborDockAreaRect(areaInfo.Bounds, draggedTabInfo.ContentSize, dock);
-                ctx.FillRectangle(_dockingHost.DockIndicatorFieldFill, rect);
+                if (areaInfo.InsertNeighborIndex < _dockingHost.Children.Count)
+                {
+                    var control = _dockingHost.Children[areaInfo.InsertNeighborIndex];
+                    var bounds = _dockingHost.GetBoundsOf(control);
+                    var rect = CalcNeighborDockAreaRect(bounds, draggedTabInfo.ContentSize, dock);
+                    ctx.FillRectangle(_dockingHost.DockIndicatorFieldFill, rect);
+                }
+                else
+                    Debug.Fail("Something went wrong");
             }
             else if (_hoveredDropTarget.IsFill())
             {
