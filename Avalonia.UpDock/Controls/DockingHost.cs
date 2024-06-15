@@ -174,7 +174,7 @@ public partial class DockingHost : DockSplitPanel
     {
         Debug.Assert(!_registeredTabControls.ContainsKey(tabControl));
 
-        LIST_MODIFY_HANDLER handler = (_, _) => TabControl_ItemsModified(tabControl);
+        LIST_MODIFY_HANDLER handler = (_, e) => TabControl_ItemsModified(tabControl, e);
         tabControl.Items.CollectionChanged += handler;
         _registeredTabControls[tabControl] = handler;
 
@@ -239,12 +239,17 @@ public partial class DockingHost : DockSplitPanel
     /// Ensures that after a modification there are still no TabControls with no Items in the Dock Tree unless it's the last child of the DockingHost
     /// aka the "Fill" control
     /// </summary>
-    private void TabControl_ItemsModified(TabControl tabControl)
+    private void TabControl_ItemsModified(TabControl tabControl, NotifyCollectionChangedEventArgs e)
     {
         if (tabControl.Items.Count > 0)
             return;
 
         if (tabControl.Parent is not Panel parent)
+            return;
+
+        // it's not supposed to happen but we better catch it
+        if (e.OldItems?.Cast<object>().Any(x => x is DummyTabItem) == true &&
+            e.OldItems.Count == 1)
             return;
 
         int indexInParent = parent.Children.IndexOf(tabControl);
@@ -543,6 +548,10 @@ public partial class DockingHost : DockSplitPanel
     }
 
     public bool CanFill(Control control) => control is TabControl;
+    public bool CanSplit(Control control) => 
+        control is not TabControl tabControl ||
+        //we don't want to split empty TabControls as they are not supposed to be children of SplitPanel
+        tabControl.Items.Any(x => x is not DummyTabItem); 
 
     public bool CanDockNextTo(Control target, out DockFlags dockFlags, out int insertIndex)
     {

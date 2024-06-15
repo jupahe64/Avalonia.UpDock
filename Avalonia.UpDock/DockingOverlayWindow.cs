@@ -344,12 +344,16 @@ internal class DockingOverlayWindow : Window
 
             info = new DockUILayoutInfo
             {
-                CornerRadius = cornerRadius,
-                LeftSplitRect = DockUIRect(rects, -1, 0),
-                RightSplitRect = DockUIRect(rects, 1, 0),
-                TopSplitRect = DockUIRect(rects, 0, -1),
-                BottomSplitRect = DockUIRect(rects, 0, 1),
+                CornerRadius = cornerRadius
             };
+
+            if (_dockingHost.CanSplit(control))
+            {
+                info.LeftSplitRect = DockUIRect(rects, -1, 0);
+                info.RightSplitRect = DockUIRect(rects, 1, 0);
+                info.TopSplitRect = DockUIRect(rects, 0, -1);
+                info.BottomSplitRect = DockUIRect(rects, 0, 1);
+            }
 
             if (_dockingHost.CanFill(control))
                 info.CenterRect = DockUIRect(rects, 0, 0);
