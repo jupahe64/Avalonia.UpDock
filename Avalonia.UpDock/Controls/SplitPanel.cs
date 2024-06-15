@@ -78,6 +78,8 @@ public class SplitPanel : Panel
     private List<Line> _splitLines = [];
     private SplitFractions _fractions = SplitFractions.Default;
 
+    public int SlotCount => Fractions.Count;
+
     public SplitFractions Fractions
     {
         get => _fractions;
@@ -117,6 +119,16 @@ public class SplitPanel : Panel
     }
 
     public Orientation Orientation { get; set; }
+
+    public Control? GetControlAtSlot(Index slot)
+    {
+        int idx = slot.GetOffset(Fractions.Count);
+
+        if (idx < 0 || idx >= Fractions.Count)
+            throw new ArgumentOutOfRangeException(nameof(slot), idx, null);
+
+        return idx < Children.Count ? Children[idx] : null;
+    }
 
     public void GetSlotSize(int slot, out int size, out Size size2D)
     {

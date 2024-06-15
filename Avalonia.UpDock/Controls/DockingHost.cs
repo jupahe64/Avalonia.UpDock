@@ -2,6 +2,7 @@
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -111,7 +112,7 @@ public partial class DockingHost : DockSplitPanel
         foreach (var child in e.NewItems?.OfType<Control>() ?? [])
         {
             if (child is SplitPanel splitPanel)
-                RegisterSplitPanelForDocking(splitPanel, (control as SplitPanel)?.Orientation);
+                RegisterSplitPanelForDocking(splitPanel);
             else if (child is TabControl tabControl)
                 RegisterTabControlForDocking(tabControl);
         }
@@ -136,10 +137,9 @@ public partial class DockingHost : DockSplitPanel
     private readonly Dictionary<TabControl, LIST_MODIFY_HANDLER> _registeredTabControls = [];
     private readonly Dictionary<SplitPanel, LIST_MODIFY_HANDLER> _registeredSplitPanels = [];
 
-    private void RegisterSplitPanelForDocking(SplitPanel splitPanel, Orientation? parentOrientation = null)
+    private void RegisterSplitPanelForDocking(SplitPanel splitPanel)
     {
         Debug.Assert(!_registeredSplitPanels.ContainsKey(splitPanel));
-        bool hasParent = parentOrientation.HasValue;
         Orientation orientation = splitPanel.Orientation;
 
 
@@ -152,7 +152,7 @@ public partial class DockingHost : DockSplitPanel
             if (child is TabControl tabControl)
                 RegisterTabControlForDocking(tabControl);
             else if (child is SplitPanel childSplitPanel)
-                RegisterSplitPanelForDocking(childSplitPanel, orientation);
+                RegisterSplitPanelForDocking(childSplitPanel);
         }
     }
 
@@ -197,62 +197,67 @@ public partial class DockingHost : DockSplitPanel
     /// Ensures that after a modification there are still no SplitPanels with less than 2 Children
     /// unless it's the root
     /// </summary>
-    private void SplitPanel_ChildrenModified(SplitPanel panel, NotifyCollectionChangedEventArgs e)
+    private void SplitPanel_ChildrenModified(SplitPanel splitPanel, NotifyCollectionChangedEventArgs e)
     {
-        if (_ignoreModified.Contains(panel))
+        if (_ignoreModified.Contains(splitPanel))
             return;
 
-        HandleChildrenModified(panel, e);
+        HandleChildrenModified(splitPanel, e);
 
         if (e.Action != NotifyCollectionChangedAction.Remove)
             return;
 
-        if (panel.Parent is not SplitPanel parent)
+        if (splitPanel.Parent is not Panel parentPanel)
             return;
 
-        int slotInParent = parent.Children.IndexOf(panel);
+        int indexInParent = parentPanel.Children.IndexOf(splitPanel);
 
-        if (panel.Children.Count == 1)
+        if (splitPanel.Children.Count == 1)
         {
-            var child = panel.Children[0];
+            var child = splitPanel.Children[0];
 
             //panel is still part of the UI Tree and as such can trigger a cascade of unwanted changes
             //and we can't remove it without triggering ChildrenModified
             //or replacing it with a Dummy Control so we have to:
-            _ignoreModified.Add(panel);
+            _ignoreModified.Add(splitPanel);
 
-            if (child is TabControl tabControl)
-                UnregisterTabControl(tabControl);
-            else if (child is SplitPanel splitPanel)
-                UnregisterSplitPanel(splitPanel);
+            if (child is TabControl childTabControl)
+                UnregisterTabControl(childTabControl);
+            else if (child is SplitPanel childSplitPanel)
+                UnregisterSplitPanel(childSplitPanel);
 
-            panel.Children.Clear();
-            _ignoreModified.Remove(panel);
+            splitPanel.Children.Clear();
+            _ignoreModified.Remove(splitPanel);
 
-            parent.Children[slotInParent] = child;
+            parentPanel.Children[indexInParent] = child;
         }
-        else if (panel.Children.Count == 0)
-            parent.Children.RemoveAt(slotInParent);
+        else if (splitPanel.Children.Count == 0)
+            parentPanel.Children.RemoveAt(indexInParent);
     }
 
     /// <summary>
-    /// Ensures that after a modification there are still no TabControls with no Items
-    /// unless it's the only child in the root or the only other children are unsupported Controls
+    /// Ensures that after a modification there are still no TabControls with no Items in the Dock Tree unless it's the last child of the DockingHost
+    /// aka the "Fill" control
     /// </summary>
-    private static void TabControl_ItemsModified(TabControl tabControl)
+    private void TabControl_ItemsModified(TabControl tabControl)
     {
         if (tabControl.Items.Count > 0)
             return;
 
-        if (tabControl.Parent is not SplitPanel parent)
-            return;
-
-        if (parent.Children.Count == 1 && parent.Parent is not SplitPanel)
+        if (tabControl.Parent is not Panel parent)
             return;
 
         int indexInParent = parent.Children.IndexOf(tabControl);
-
-        parent.RemoveSlot(indexInParent);
+        if (parent is SplitPanel parentSplitPanel)
+        {
+            if (indexInParent < parentSplitPanel.SlotCount)
+                parentSplitPanel.RemoveSlot(indexInParent);
+        }  
+        else if (parent == this && tabControl == Children[^1])
+            return;
+        else
+            parent.Children.RemoveAt(indexInParent);
+        
     }
     #endregion
 
@@ -283,6 +288,63 @@ public partial class DockingHost : DockSplitPanel
 
         insertAction(panel);
         panel.Children.AddRange([slot1.child, slot2.child]);
+    }
+
+    private static void ApplySplitDock(Control targetControl, Dock dock, Size dockSize, Control controlToInsert)
+    {
+        if (targetControl.Parent is not Panel parent)
+            throw new InvalidOperationException();
+
+        Orientation splitOrientation = dock switch
+        {
+            Dock.Left or Dock.Right => Orientation.Horizontal,
+            Dock.Top or Dock.Bottom => Orientation.Vertical,
+            _ => throw null!
+        };
+
+        var slotSize = targetControl.Bounds.Size;
+
+        (int insertSlotSize, int otherSlotSize) = dock switch
+        {
+            Dock.Left or Dock.Right => ((int)dockSize.Width, (int)(slotSize.Width - dockSize.Width)),
+            Dock.Top or Dock.Bottom => ((int)dockSize.Height, (int)(slotSize.Height - dockSize.Height)),
+            _ => throw null!
+        };
+
+        Action<SplitPanel> insertAction;
+
+        if (parent is SplitPanel splitPanel)
+        {
+            int dropSlot = splitPanel.Children.IndexOf(targetControl);
+            if (splitPanel.TrySplitSlot(dropSlot, (dock, insertSlotSize, controlToInsert), otherSlotSize))
+                return;
+
+            insertAction = panel => parent.Children[dropSlot] = panel;
+        }
+        else
+        {
+            insertAction = s =>
+            {
+                var dock = GetDock(targetControl);
+                if (dock != DockProperty.GetDefaultValue(typeof(Control)))
+                    s.SetValue(DockProperty, dock);
+
+                parent.Children[parent.Children.IndexOf(targetControl)] = s;
+            };
+        }
+
+        if (dock is Dock.Left or Dock.Top)
+        {
+            InsertSplitPanel(splitOrientation,
+                (insertSlotSize, controlToInsert), (otherSlotSize, targetControl),
+                insertAction);
+        }
+        else
+        {
+            InsertSplitPanel(splitOrientation,
+                (otherSlotSize, targetControl), (insertSlotSize, controlToInsert),
+                insertAction);
+        }
     }
     #endregion
 
@@ -358,14 +420,14 @@ public partial class DockingHost : DockSplitPanel
 
             _overlayWindow.AreaEntered += OverlayWindow_AreaEntered;
             _overlayWindow.AreaExited += OverlayWindow_AreaExited;
-        }
-        
-        _overlayWindow.Position = this.PointToScreen(new Point());
-        _overlayWindow.Width = Bounds.Width;
-        _overlayWindow.Height = Bounds.Height;
 
-        _overlayWindow.UpdateAreas();
-        _overlayWindow.Show(GetHostWindow());
+            _overlayWindow.Position = this.PointToScreen(new Point());
+            _overlayWindow.Width = Bounds.Width;
+            _overlayWindow.Height = Bounds.Height;
+
+            _overlayWindow.UpdateAreas();
+            _overlayWindow.Show(GetHostWindow());
+        }
 
         _overlayWindow.OnPointerMoved(e);
     }
@@ -376,87 +438,89 @@ public partial class DockingHost : DockSplitPanel
         Debug.Assert(_overlayWindow != null);
 
         TabInfo tabInfo = DraggedTabInfo.Value;
-        Control? dropTargetControl = _overlayWindow.HoveredControl;
-        DropTarget dropTarget = _overlayWindow.HoveredDropTarget;
+
+        var overlayResult = _overlayWindow.GetResult();
 
         _overlayWindow.Close();
         _overlayWindow = null;
         _draggedWindow = null;
-        Point hitPoint = e.GetPosition(this);
 
-        if (dropTargetControl == null || dropTarget.IsNone())
-            return;
-
-        DockTabWindow window = (DockTabWindow)sender!;
-        TabItem tabItem = window.DetachTabItem();
-        window.Close();
-
-        if (dropTarget.IsTabBar(out int index))
+        TabItem CloseAndDetach()
         {
-            if (dropTargetControl is not TabControl tabControl)
-            {
-                Debug.Fail("Invalid dropTarget for control");
-                return;
-            }
+            DockTabWindow window = (DockTabWindow)sender!;
+            TabItem tabItem = window.DetachTabItem();
+            window.Close();
+            return tabItem;
+        }
 
+        TabControl? tabControl;
+        Control? target;
+
+        if (overlayResult.IsInsertTab(out tabControl, out int index))
+        {
+            var tabItem = CloseAndDetach();
             tabControl.Items.Insert(index, tabItem);
-            return;
         }
-
-        if (dropTarget.IsFill())
+        else if (overlayResult.IsFillControl(out target))
         {
-            if (dropTargetControl is not TabControl tabControl)
+            tabControl = target as TabControl;
+            if (tabControl == null)
             {
                 Debug.Fail("Invalid dropTarget for control");
                 return;
             }
 
+            var tabItem = CloseAndDetach();
             tabControl.Items.Add(tabItem);
-            return;
         }
-
-        if (dropTarget.IsDock(out Dock dock))
+        else if (overlayResult.IsSplitControl(out target, out Dock dock))
         {
-            SplitPanel parent = (SplitPanel)dropTargetControl.Parent!;
+            var tabItem = CloseAndDetach();
+            TabControl newTabControl = CreateTabControl(tabItem);
+            var dockSize = CalculateDockRect(tabInfo,
+                new Rect(default, target.Bounds.Size), dock)
+                .Size;
 
-            Orientation splitOrientation = dock switch
-            {
-                Dock.Left or Dock.Right => Orientation.Horizontal,
-                Dock.Top or Dock.Bottom => Orientation.Vertical,
-                _ => throw null!
-            };
+            ApplySplitDock(target, dock, dockSize, newTabControl);
+        }
+        else if (overlayResult.IsInsertNextTo(out target, out dock))
+        {
+            var tabItem = CloseAndDetach();
+            if (!CanDockNextTo(target, out DockFlags dockFlags, out int insertIndex) ||
+                !dockFlags.HasFlag(DockAsFlags(dock)))
+                throw new Exception("Layout has changed since tab has been dragged");
 
             TabControl newTabControl = CreateTabControl(tabItem);
-            var dropSlot = parent.Children.IndexOf(dropTargetControl);
+            newTabControl.SetValue(DockProperty, dock);
 
-            parent.GetSlotSize(dropSlot, out _, out Size slotSize);
-
-            var dockSize = CalculateDockRect(tabInfo, new Rect(default, slotSize), dock).Size;
-
-            (int insertSlotSize, int otherSlotSize) = dock switch
-            {
-                Dock.Left or Dock.Right => ((int)dockSize.Width, (int)(slotSize.Width - dockSize.Width)),
-                Dock.Top or Dock.Bottom => ((int)dockSize.Height, (int)(slotSize.Height - dockSize.Height)),
-                _ => throw null!
-            };
-
-            if (parent.TrySplitSlot(dropSlot, (dock, insertSlotSize, newTabControl), otherSlotSize))
-                return;
-
-            if (dock is Dock.Left or Dock.Top)
-            {
-                InsertSplitPanel(splitOrientation,
-                    (insertSlotSize, newTabControl), (otherSlotSize, dropTargetControl),
-                    panel => parent.Children[dropSlot] = panel);
-            }
+            if (dock is Dock.Left or Dock.Right)
+                newTabControl.Width = tabInfo.ContentSize.Width;
             else
-            {
-                InsertSplitPanel(splitOrientation,
-                    (otherSlotSize, dropTargetControl), (insertSlotSize, newTabControl),
-                    panel => parent.Children[dropSlot] = panel);
-            }
+                newTabControl.Height = tabInfo.ContentSize.Height;
+            Children.Insert(insertIndex, newTabControl);
+        }
+        else if (overlayResult.IsInsertOuter(out dock))
+        {
+            var tabItem = CloseAndDetach();
+            TabControl newTabControl = CreateTabControl(tabItem);
+            newTabControl.SetValue(DockProperty, dock);
+
+            if (dock is Dock.Left or Dock.Right)
+                newTabControl.Width = tabInfo.ContentSize.Width;
+            else
+                newTabControl.Height = tabInfo.ContentSize.Height;
+            Children.Insert(0, newTabControl);
         }
     }
+
+    private static DockFlags DockAsFlags(Dock dock) => dock switch
+    {
+        Dock.Left => DockFlags.Left,
+        Dock.Right => DockFlags.Right,
+        Dock.Top => DockFlags.Top,
+        Dock.Bottom => DockFlags.Bottom,
+        _ => throw null!
+    };
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
@@ -478,6 +542,67 @@ public partial class DockingHost : DockSplitPanel
             return;
 
         _draggedWindow.OnDragging(e);
+    }
+
+    public bool CanFill(Control control) => control is TabControl;
+
+    public bool CanDockNextTo(Control target, out DockFlags dockFlags, out int insertIndex)
+    {
+        if (target.Parent is not SplitPanel panel)
+        {
+            if (target.Parent != this)
+            {
+                dockFlags = DockFlags.None;
+                insertIndex = -1;
+                return false;
+            }
+
+            insertIndex = Children.IndexOf(target);
+
+            Debug.Assert(insertIndex >= 0);
+
+            if (target == Children[^1])
+            {
+                dockFlags = DockFlags.All;
+                return true;
+            }
+            else
+            {
+                dockFlags = GetDock(target) switch
+                {
+                    Dock.Left => DockFlags.Left,
+                    Dock.Right => DockFlags.Right,
+                    Dock.Top => DockFlags.Top,
+                    Dock.Bottom => DockFlags.Bottom,
+                    _ => DockFlags.None
+                };
+                return true;
+            }
+        }
+
+        bool isVertical = panel.Orientation == Orientation.Vertical;
+
+        if (!CanDockNextTo(panel, out dockFlags, out insertIndex))
+            return false;
+
+        DockFlags mask = DockFlags.None;
+        if (!isVertical && target == panel.GetControlAtSlot(0))
+            mask |= DockFlags.Left;
+        if (!isVertical && target == panel.GetControlAtSlot(^1))
+            mask |= DockFlags.Right;
+        if (isVertical && target == panel.GetControlAtSlot(0))
+            mask |= DockFlags.Top;
+        if (isVertical && target == panel.GetControlAtSlot(^1))
+            mask |= DockFlags.Bottom;
+
+        if (isVertical)
+            mask |= DockFlags.Left | DockFlags.Right;
+        else
+            mask |= DockFlags.Top | DockFlags.Bottom;
+
+
+        dockFlags &= mask;
+        return dockFlags != DockFlags.None;
     }
 
     public void VisitDockingTreeNodes<T>(Action<T> visitor)
