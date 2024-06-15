@@ -77,6 +77,7 @@ public class SplitPanel : Panel
 
     private List<Line> _splitLines = [];
     private SplitFractions _fractions = SplitFractions.Default;
+    private Orientation _orientation = Orientation.Horizontal;
 
     public int SlotCount => Fractions.Count;
 
@@ -118,7 +119,20 @@ public class SplitPanel : Panel
         }
     }
 
-    public Orientation Orientation { get; set; }
+    public Orientation Orientation
+    {
+        get => _orientation; 
+        set
+        {
+            if (_orientation == value) return;
+            _orientation = value;
+
+            foreach (var line in _splitLines)
+                line.Cursor = value == Orientation.Horizontal ? s_horizontalResizeCursor : s_verticalResizeCursor;
+
+            InvalidateArrange();
+        }
+    }
 
     public Control? GetControlAtSlot(Index slot)
     {
