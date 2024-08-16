@@ -2,7 +2,6 @@
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -426,12 +425,11 @@ public partial class DockingHost : DockSplitPanel
             _overlayWindow.AreaEntered += OverlayWindow_AreaEntered;
             _overlayWindow.AreaExited += OverlayWindow_AreaExited;
 
+            _overlayWindow.Show(GetHostWindow());
             _overlayWindow.Position = this.PointToScreen(new Point());
             _overlayWindow.Width = Bounds.Width;
             _overlayWindow.Height = Bounds.Height;
-
             _overlayWindow.UpdateAreas();
-            _overlayWindow.Show(GetHostWindow());
         }
 
         _overlayWindow.OnPointerMoved(e);

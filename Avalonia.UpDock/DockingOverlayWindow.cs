@@ -90,15 +90,6 @@ internal class DockingOverlayWindow : Window
     private DockUILayoutInfo _hoveredControlDockUI;
     private DockUILayoutInfo _outerEdgesDockUI;
 
-    public override void Show()
-    {
-        SystemDecorations = SystemDecorations.None;
-        UpdateAreas();
-        _hoveredControl = null;
-        _hoveredDropTarget = DropTarget.None;
-        base.Show();
-    }
-
     public void UpdateAreas()
     {
         _areas.Clear();
