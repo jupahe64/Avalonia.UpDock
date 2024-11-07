@@ -365,7 +365,8 @@ public partial class DockingHost : DockSplitPanel
             Width = tabControl.Bounds.Width,
             Height = tabControl.Bounds.Height,
             SystemDecorations = SystemDecorations.None,
-            Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset)
+            Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset),
+            DataContext = (hostWindow?.DataContext)
         };
 
         window.Show(hostWindow);
