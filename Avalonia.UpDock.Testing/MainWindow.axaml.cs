@@ -14,7 +14,7 @@ public partial class MainWindow : Window
 {
     public MainWindow()
     {
-        InitializeComponent(true, true);
+        InitializeComponent();
     }
 
     private void UnclosableTab_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
