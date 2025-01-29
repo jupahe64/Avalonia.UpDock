@@ -6,6 +6,10 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.UpDock.Controls;
 using System;
+using System.Reactive.Linq;
+using Avalonia.Controls.Documents;
+using Avalonia.Layout;
+using Avalonia.Platform;
 
 namespace Avalonia.UpDock;
 
@@ -18,12 +22,13 @@ internal class DockTabWindow : Window
 
     private record DragInfo(Point Offset);
 
-    private IBrush? _tabBackground = null;
-    private IBrush? _tabItemBackground = null;
-    private IPen _borderPen = new Pen(Brushes.Gray, 1);
-    private TabItem _tabItem;
+    private IBrush? _tabBackground;
+    private readonly IBrush? _tabItemBackground;
+    private readonly IPen _borderPen = new Pen(Brushes.Gray);
+    private readonly TabItem _tabItem;
     private readonly Size _contentSize;
-    private HookedTabControl _tabControl;
+    private readonly HookedTabControl _tabControl;
+    private readonly Button _minimizeBtn;
 
     private DragInfo? _dragInfo = null;
 
@@ -46,13 +51,15 @@ internal class DockTabWindow : Window
 
         return _tabItem;
     }
+    
+    private readonly TabBarDragHandler _tabBarDragHandler;
 
     public DockTabWindow(TabItem tabItem, Size contentSize)
     {
         #if DEBUG
         this.AttachDevTools();
         #endif
-
+        
         _tabItem = tabItem;
         _contentSize = contentSize;
         _tabItem.PointerPressed += TabItem_PointerPressed;
@@ -65,18 +72,153 @@ internal class DockTabWindow : Window
 
         _tabItemBackground = tabItem.Background;
 
-
-        _tabControl = new HookedTabControl()
+        // this is a mess but aligning the minimize button with the tab item
+        // in a way that doesn't look weird is a pain in the ...
+        TextBlock sizeDummy;
+        var minimizeBtnPanel = new Panel
         {
-            Background = Brushes.Transparent, //just to be save
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            [Grid.ColumnProperty] = 1,
+            Children =
+            {
+                new Panel
+                {
+                    [!WidthProperty] = _tabItem[!MinHeightProperty],
+                    [!HeightProperty] = _tabItem[!MinHeightProperty]
+                },
+                (_minimizeBtn = new Button
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    MinHeight = 0,
+                    Padding = new Thickness(0),
+                    [!MarginProperty] = tabItem[!PaddingProperty],
+                    [!FontSizeProperty] = tabItem[!FontSizeProperty],
+                    Content = new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        FlowDirection = FlowDirection.RightToLeft,
+                        Children =
+                        {
+                            new MinimizeSymbol(),
+                            (sizeDummy = new TextBlock
+                            {
+                                [!FontSizeProperty] = tabItem[!FontSizeProperty]
+                            })
+                        },
+                        [!MarginProperty] = sizeDummy.GetObservable(BoundsProperty)
+                            .WithLatestFrom(tabItem.GetObservable(FontSizeProperty), (x, y) => (x.Height - y) / 2)
+                            .Select(x=> new Thickness(x, 0, x, 0))
+                            .ToBinding()
+                    }
+                        
+                })
+            }
         };
+
+        _tabControl = new HookedTabControl
+        {
+            Background = Brushes.Transparent, //just to be safe
+            [Grid.ColumnSpanProperty] = 2,
+            [Grid.RowSpanProperty] = 2
+        };
+        
+        var tabItemBoundsObservable = _tabItem.GetObservable(BoundsProperty);
+        var gridLayout = new Grid
+        {
+            ColumnDefinitions = [
+                new ColumnDefinition
+                { 
+                    [!ColumnDefinition.WidthProperty] = tabItemBoundsObservable
+                        .Select(b => new GridLength(b.Width, GridUnitType.Pixel)).ToBinding()
+                },
+                new ColumnDefinition{ Width = new GridLength(1, GridUnitType.Star) }
+            ],
+            RowDefinitions = [
+                new RowDefinition
+                { 
+                    [!RowDefinition.HeightProperty] = tabItemBoundsObservable
+                        .Select(b => new GridLength(b.Height, GridUnitType.Pixel)).ToBinding()
+                },
+                new RowDefinition{ Height = new GridLength(1, GridUnitType.Star) }
+            ],
+            Children =
+            {
+                _tabControl,
+                minimizeBtnPanel
+            }
+        };
+        
+        _tabBarDragHandler = new TabBarDragHandler(this, _tabControl);
         _tabControl.Items.Add(tabItem);
+        
 
         SizeToContent = SizeToContent.WidthAndHeight;
-        Content = _tabControl;
+        Content = gridLayout;
 
         _tabControl.LayoutUpdated += TabControl_LayoutUpdated;
         _tabControl.Padding = new Thickness(0);
+        _minimizeBtn.Click += MinimizeBtn_Click;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        base.OnClosed(e);
+        _tabBarDragHandler.UnRegister();
+        _minimizeBtn.Click -= MinimizeBtn_Click;
+    }
+
+    private class TabBarDragHandler
+    {
+        private readonly DockTabWindow _dockTabWindow;
+        private readonly HookedTabControl _tabControl;
+
+        public TabBarDragHandler(DockTabWindow dockTabWindow, HookedTabControl tabControl)
+        {
+            _dockTabWindow = dockTabWindow;
+            _tabControl = tabControl;
+            
+            _tabControl.PointerPressed += TabControl_PointerPressed;
+            _tabControl.PointerMoved += TabControl_PointerMoved;
+            _tabControl.PointerReleased += TabControl_PointerReleased;
+        }
+
+        public void UnRegister()
+        {
+            _tabControl.PointerPressed -= TabControl_PointerPressed;
+            _tabControl.PointerMoved -= TabControl_PointerMoved;
+            _tabControl.PointerReleased -= TabControl_PointerReleased;
+        }
+        
+        private bool _isDragging;
+        private PixelPoint _previousPoint;
+
+        private void TabControl_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (_tabControl.TabBarPresenter == null)
+                return;
+            
+            if (!_tabControl.TabBarPresenter.Bounds.Contains(e.GetPosition(_tabControl)))
+                return;
+            
+            _isDragging = true;
+            _previousPoint = _dockTabWindow.PointToScreen(e.GetPosition(_dockTabWindow));
+        }
+
+        private void TabControl_PointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (!_isDragging)
+                return;
+            var currentPoint = _dockTabWindow.PointToScreen(e.GetPosition(_dockTabWindow));
+            _dockTabWindow.Position += currentPoint - _previousPoint;
+            _previousPoint = currentPoint;
+        }
+
+        private void TabControl_PointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            _isDragging = false;
+        }
     }
 
     private void TabControl_LayoutUpdated(object? sender, EventArgs e)
@@ -142,12 +284,28 @@ internal class DockTabWindow : Window
         Close();
     }
 
-    private void TabItem_PointerPressed(object? sender, PointerEventArgs e) => OnDragStart(e);
+    private void TabItem_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+            return;
+        OnDragStart(e);
+    }
+
     private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
-    private void TabItem_PointerReleased(object? sender, PointerEventArgs e) => OnDragEnd(e);
+    private void TabItem_PointerReleased(object? sender, PointerEventArgs e)
+    {
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
+            return;
+        OnDragEnd(e);
+    }
 
     private void TabItem_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => OnCaptureLost(e);
 
+    private void MinimizeBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState.Minimized;
+    }
+    
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -188,7 +346,9 @@ internal class DockTabWindow : Window
 
     public void OnDragStart(PointerEventArgs e)
     {
+        ExtendClientAreaToDecorationsHint = false;
         SystemDecorations = SystemDecorations.None;
+        _minimizeBtn.IsVisible = false;
         _dragInfo = new(e.GetPosition(this));
         _lastPointerEvent = e;
     }
@@ -197,7 +357,10 @@ internal class DockTabWindow : Window
     {
         _dragInfo = null;
         DragEnd?.Invoke(this, e);
-        SystemDecorations = SystemDecorations.Full;
+        ExtendClientAreaToDecorationsHint = true;
+        ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome;
+        _minimizeBtn.IsVisible = true;
+        SystemDecorations = SystemDecorations.BorderOnly;
         _lastPointerEvent = null;
     }
 
@@ -223,12 +386,71 @@ internal class DockTabWindow : Window
     private class HookedTabControl : TabControl
     {
         public ContentPresenter? ContentPresenter { get; private set; }
+        public ItemsPresenter? TabBarPresenter { get; private set; }
         protected override Type StyleKeyOverride => typeof(TabControl);
 
         protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
         {
             base.OnApplyTemplate(e);
             ContentPresenter = e.NameScope.Find<ContentPresenter>("PART_SelectedContentHost");
+            TabBarPresenter = e.NameScope.Find<ItemsPresenter>("PART_ItemsPresenter");
+        }
+    }
+}
+
+public class MinimizeSymbol : Control
+{
+    private Geometry? _minusGeometry;
+    
+    public static readonly StyledProperty<double> FontSizeProperty =
+        TextElement.FontSizeProperty.AddOwner<MinimizeSymbol>();
+    
+    public static readonly StyledProperty<IBrush?> ForegroundProperty =
+        TextElement.ForegroundProperty.AddOwner<MinimizeSymbol>();
+    
+    public double FontSize
+    {
+        get => GetValue(FontSizeProperty);
+        set => SetValue(FontSizeProperty, value);
+    }
+    
+    public IBrush? Foreground
+    {
+        get => GetValue(ForegroundProperty);
+        set => SetValue(ForegroundProperty, value);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property != FontSizeProperty) 
+            return;
+        
+        double thickness = Math.Max(FontSize * 0.1, 2);
+        double radius = FontSize * 0.35;
+
+        _minusGeometry = new RectangleGeometry(new Rect(
+            -radius, -thickness/2, 
+            radius * 2, thickness
+            ), thickness/2, thickness/2);
+    }
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        return new Size(FontSize, FontSize);
+    }
+
+    public override void Render(DrawingContext context)
+    {
+        var center = Bounds.WithX(0).WithY(0).Center;
+
+        using (context.PushTransform(Matrix.CreateTranslation(center)))
+        {
+            using (context.PushOpacity(IsPointerOver ? 1 : 0.6))
+            {
+                context.DrawGeometry(Foreground, null, _minusGeometry!);
+            }
         }
     }
 }
