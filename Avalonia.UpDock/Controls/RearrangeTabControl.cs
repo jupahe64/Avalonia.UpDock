@@ -11,24 +11,46 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using Avalonia.Interactivity;
 
 namespace Avalonia.UpDock.Controls;
 
-public class DockingTabControl : TabControl
+/// <summary>
+/// A <see cref="TabControl"/> that supports <b>rearranging</b> and <b>dragging out</b> tabs.
+/// </summary>
+/// <remarks>
+/// Dragging out tabs requires registering a <i>handler</i> via <see cref="RegisterDraggedOutTabHandler"/>.
+/// <see cref="DockSpacePanel"/> does this automatically
+/// </remarks>
+public class RearrangeTabControl : TabControl
 {
+    /// <summary>
+    /// Defines the behaviour for dragging a <see cref="TabItem"/> out of this <see cref="TabControl"/>'s tab bar
+    /// </summary>
     public delegate void DraggedOutTabHandler(object? sender, PointerEventArgs e, TabItem itemRef, Point offset, Size contentSize);
 
-    public void RegisterDraggedOutTabHanlder(DraggedOutTabHandler handler)
+    /// <summary>
+    /// Enables (and registers the given <paramref name="handler"/> as the handler for) dragging out tabs
+    /// </summary>
+    /// <remarks>
+    /// If a handler is/might be already present call <see cref="UnregisterDraggedOutTabHandler"/> first
+    /// </remarks>
+    /// <param name="handler">The handler to register</param>
+    /// <exception cref="InvalidOperationException">if there is a handler already registered</exception>
+    public void RegisterDraggedOutTabHandler(DraggedOutTabHandler handler)
     {
         if (_draggedOutTabHandler != null)
             throw new InvalidOperationException(
-                $"There is already a {nameof(DraggedOutTabHandler)} registered with this {nameof(DockingTabControl)}\n" +
-                $"You must call {nameof(UnregisterDraggedOutTabHanlder)} first");
+                $"There is already a {nameof(DraggedOutTabHandler)} registered with this {nameof(RearrangeTabControl)}\n" +
+                $"You must call {nameof(UnregisterDraggedOutTabHandler)} first");
 
         _draggedOutTabHandler = handler;
     }
 
-    public void UnregisterDraggedOutTabHanlder() => _draggedOutTabHandler = null;
+    /// <summary>
+    /// Disables dragging out tabs and unregisters the handler registered via <see cref="RegisterDraggedOutTabHandler"/>
+    /// </summary>
+    public void UnregisterDraggedOutTabHandler() => _draggedOutTabHandler = null;
 
     private DraggedOutTabHandler? _draggedOutTabHandler;
 
@@ -38,31 +60,10 @@ public class DockingTabControl : TabControl
     private ItemsPresenter? _itemsPresenterPart;
     private ContentPresenter? _contentPresenterPart;
 
-    public DockingTabControl()
+    public RearrangeTabControl()
     {
         IsHitTestVisible = true;
-        Items.CollectionChanged += Items_CollectionChanged;
         Padding = new Thickness(0);
-    }
-
-    private void Items_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (e.OldItems != null)
-        {
-            foreach (var item in e.OldItems.OfType<ClosableTabItem>())
-                item.Closed -= Item_Closed;
-        }
-        if (e.NewItems != null)
-        {
-            foreach (var item in e.NewItems.OfType<ClosableTabItem>())
-                item.Closed += Item_Closed;
-        }
-    }
-
-    private void Item_Closed(object? sender, Interactivity.RoutedEventArgs e)
-    {
-        var closableTabItem = (ClosableTabItem)sender!;
-        Items.Remove(closableTabItem);
     }
 
     protected override Type StyleKeyOverride => typeof(TabControl);
@@ -145,8 +146,8 @@ public class DockingTabControl : TabControl
         }
 
         if (!isHoveredValid)
-            return; ///don't count the tab hovered after rearrange to prevent flickering
-                    ///see <see cref="RearrangeDeflickerer"/>
+            return; //don't count the tab as hovered after rearrange to prevent flickering
+                    //see RearrangeDeflickerer class below
 
         int draggedTabIndex = Items.IndexOf(draggedTab);
 

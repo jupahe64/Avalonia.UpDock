@@ -22,37 +22,37 @@
 
 			</MenuItem>
 		</Menu>
-		<up:DockingHost>
-			<up:DockingTabControl DockPanel.Dock="Bottom" Height="200">
+		<up:DockSpacePanel>
+			<up:RearrangeTabControl DockPanel.Dock="Bottom" Height="200">
 				<up:ClosableTabItem Header="Tab 5.1" HeaderTemplate="{DynamicResource TabTemplate}">
 					<StackPanel>
 						<TextBlock Text="This is tab 4.1 content" />
 					</StackPanel>
 				</up:ClosableTabItem>
-			</up:DockingTabControl>
-			<up:DockingTabControl DockPanel.Dock="Right" Width="400">
+			</up:RearrangeTabControl>
+			<up:RearrangeTabControl DockPanel.Dock="Right" Width="400">
 				<up:ClosableTabItem Header="Tab 5.1" HeaderTemplate="{DynamicResource TabTemplate}">
 					<StackPanel>
 						<TextBlock Text="This is tab 4.1 content" />
 					</StackPanel>
 				</up:ClosableTabItem>
-			</up:DockingTabControl>
-			<up:DockingTabControl DockPanel.Dock="Bottom">
+			</up:RearrangeTabControl>
+			<up:RearrangeTabControl DockPanel.Dock="Bottom">
 				<up:ClosableTabItem Header="Tab 4.1" HeaderTemplate="{DynamicResource TabTemplate}">
 					<StackPanel>
 						<TextBlock Text="This is tab 4.1 content" />
 					</StackPanel>
 				</up:ClosableTabItem>
-			</up:DockingTabControl>
+			</up:RearrangeTabControl>
 			<up:SplitPanel Fractions="1, 1, 2" Orientation="Horizontal">
-				<up:DockingTabControl>
+				<up:RearrangeTabControl>
 					<up:ClosableTabItem Header="Tab 1.1" HeaderTemplate="{DynamicResource TabTemplate}">
 						<StackPanel>
 							<TextBlock Text="This is tab 1.1 content" />
 						</StackPanel>
 					</up:ClosableTabItem>
-				</up:DockingTabControl>
-				<up:DockingTabControl>
+				</up:RearrangeTabControl>
+				<up:RearrangeTabControl>
 					<up:ClosableTabItem Closing="UnclosableTab_Closing" Header="Tab 2.1 (unclosable)" HeaderTemplate="{DynamicResource TabTemplate}" >
 						<StackPanel Margin="5">
 							<TextBlock Text="This is tab 2.1 content" />
@@ -64,8 +64,8 @@
 					<up:ClosableTabItem Header="Tab 2.2" HeaderTemplate="{DynamicResource TabTemplate}">
 						<TextBlock Margin="5">This is tab 2.2 content</TextBlock>
 					</up:ClosableTabItem>
-				</up:DockingTabControl>
-				<up:DockingTabControl>
+				</up:RearrangeTabControl>
+				<up:RearrangeTabControl>
 					<up:ClosableTabItem Header="Tab 3.1">
 						<StackPanel Margin="5">
 							<TextBlock Text="This is tab 3.1 content" />
@@ -87,8 +87,8 @@
 							</TextBlock>
 						</StackPanel>
 					</TabItem>
-				</up:DockingTabControl>
+				</up:RearrangeTabControl>
 			</up:SplitPanel>
-		</up:DockingHost>
+		</up:DockSpacePanel>
 	</DockPanel>
 </Window>

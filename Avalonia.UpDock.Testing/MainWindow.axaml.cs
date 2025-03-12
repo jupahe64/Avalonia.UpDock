@@ -27,13 +27,6 @@ public partial class MainWindow : Window
         };
         popup.ShowDialog(this);
     }
-
-    protected override void OnLoaded(RoutedEventArgs e)
-    {
-        base.OnLoaded(e);
-        if (Design.IsDesignMode)
-            return;
-    }
 }
 
 public class MessagePopup : Window

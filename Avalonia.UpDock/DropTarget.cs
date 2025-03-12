@@ -3,7 +3,7 @@ using System;
 
 namespace Avalonia.UpDock;
 
-internal struct DropTarget : IEquatable<DropTarget>
+public struct DropTarget : IEquatable<DropTarget>
 {
     private enum Kind
     {
@@ -66,7 +66,6 @@ internal struct DropTarget : IEquatable<DropTarget>
     public static bool operator ==(DropTarget left, DropTarget right) => left.Equals(right);
     public static bool operator !=(DropTarget left, DropTarget right) => !left.Equals(right);
 
-    public override readonly bool Equals(object? obj) => obj is DropTarget target && Equals(target);
-
-    public override readonly int GetHashCode() => 0;
+    public readonly override bool Equals(object? obj) => obj is DropTarget target && Equals(target);
+    public readonly override int GetHashCode() => 0;
 }

@@ -1,24 +1,23 @@
-﻿using Avalonia.Controls;
+﻿using System;
+using System.Reactive.Linq;
+using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Media;
-using Avalonia.UpDock.Controls;
-using System;
-using System.Reactive.Linq;
-using Avalonia.Controls.Documents;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.UpDock.Controls;
 
 namespace Avalonia.UpDock;
 
-internal class DockTabWindow : Window
+internal class DockableTabWindow : Window, IDraggedOutTabHolder
 {
     public Size TabContentSize { get; private set; }
     public Size TabItemSize { get; private set; }
     public Size TabControlSize { get; private set; }
-    public object? TabHeader => _tabItem.Header;
 
     private record DragInfo(Point Offset);
 
@@ -35,7 +34,7 @@ internal class DockTabWindow : Window
     public event EventHandler<PointerEventArgs>? Dragging;
     public event EventHandler<PointerEventArgs>? DragEnd;
 
-    public TabItem DetachTabItem()
+    TabItem IDraggedOutTabHolder.RetrieveTabItem()
     {
         _tabItem.PointerPressed -= TabItem_PointerPressed;
         _tabItem.PointerMoved -= TabItem_PointerMoved;
@@ -49,16 +48,17 @@ internal class DockTabWindow : Window
 
         _tabItem.Background = _tabItemBackground;
 
+        Close();
         return _tabItem;
     }
     
     private readonly TabBarDragHandler _tabBarDragHandler;
 
-    public DockTabWindow(TabItem tabItem, Size contentSize)
+    public DockableTabWindow(TabItem tabItem, Size contentSize)
     {
-        #if DEBUG
+#if DEBUG
         this.AttachDevTools();
-        #endif
+#endif
         
         _tabItem = tabItem;
         _contentSize = contentSize;
@@ -171,12 +171,12 @@ internal class DockTabWindow : Window
 
     private class TabBarDragHandler
     {
-        private readonly DockTabWindow _dockTabWindow;
+        private readonly DockableTabWindow _dockableTabWindow;
         private readonly HookedTabControl _tabControl;
 
-        public TabBarDragHandler(DockTabWindow dockTabWindow, HookedTabControl tabControl)
+        public TabBarDragHandler(DockableTabWindow dockableTabWindow, HookedTabControl tabControl)
         {
-            _dockTabWindow = dockTabWindow;
+            _dockableTabWindow = dockableTabWindow;
             _tabControl = tabControl;
             
             _tabControl.PointerPressed += TabControl_PointerPressed;
@@ -203,15 +203,15 @@ internal class DockTabWindow : Window
                 return;
             
             _isDragging = true;
-            _previousPoint = _dockTabWindow.PointToScreen(e.GetPosition(_dockTabWindow));
+            _previousPoint = _dockableTabWindow.PointToScreen(e.GetPosition(_dockableTabWindow));
         }
 
         private void TabControl_PointerMoved(object? sender, PointerEventArgs e)
         {
             if (!_isDragging)
                 return;
-            var currentPoint = _dockTabWindow.PointToScreen(e.GetPosition(_dockTabWindow));
-            _dockTabWindow.Position += currentPoint - _previousPoint;
+            var currentPoint = _dockableTabWindow.PointToScreen(e.GetPosition(_dockableTabWindow));
+            _dockableTabWindow.Position += currentPoint - _previousPoint;
             _previousPoint = currentPoint;
         }
 
@@ -371,7 +371,7 @@ internal class DockTabWindow : Window
 
         _lastPointerEvent = e;
 
-        Point offset = _dragInfo.Offset;
+        var offset = _dragInfo.Offset;
 
         Position = this.PointToScreen(e.GetPosition(this) - offset);
         Dragging?.Invoke(this, e);
@@ -381,6 +381,63 @@ internal class DockTabWindow : Window
     {
         if (_lastPointerEvent != null)
             OnDragEnd(_lastPointerEvent);
+    }
+    
+    private class MinimizeSymbol : Control
+    {
+        private Geometry? _minusGeometry;
+    
+        public static readonly StyledProperty<double> FontSizeProperty =
+            TextElement.FontSizeProperty.AddOwner<MinimizeSymbol>();
+    
+        public static readonly StyledProperty<IBrush?> ForegroundProperty =
+            TextElement.ForegroundProperty.AddOwner<MinimizeSymbol>();
+    
+        public double FontSize
+        {
+            get => GetValue(FontSizeProperty);
+            set => SetValue(FontSizeProperty, value);
+        }
+    
+        public IBrush? Foreground
+        {
+            get => GetValue(ForegroundProperty);
+            set => SetValue(ForegroundProperty, value);
+        }
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+
+            if (change.Property != FontSizeProperty) 
+                return;
+        
+            double thickness = Math.Max(FontSize * 0.1, 2);
+            double radius = FontSize * 0.35;
+
+            _minusGeometry = new RectangleGeometry(new Rect(
+                -radius, -thickness/2, 
+                radius * 2, thickness
+            ), thickness/2, thickness/2);
+        }
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            return new Size(FontSize, FontSize);
+        }
+
+        public override void Render(DrawingContext context)
+        {
+            var center = Bounds.WithX(0).WithY(0).Center;
+
+            using (context.PushTransform(Matrix.CreateTranslation(center)))
+            {
+                using (context.PushOpacity(IsPointerOver ? 1 : 0.6))
+                {
+                    context.DrawGeometry(Foreground, null, _minusGeometry!);
+                }
+            }
+        }
     }
 
     private class HookedTabControl : TabControl
@@ -394,63 +451,6 @@ internal class DockTabWindow : Window
             base.OnApplyTemplate(e);
             ContentPresenter = e.NameScope.Find<ContentPresenter>("PART_SelectedContentHost");
             TabBarPresenter = e.NameScope.Find<ItemsPresenter>("PART_ItemsPresenter");
-        }
-    }
-}
-
-public class MinimizeSymbol : Control
-{
-    private Geometry? _minusGeometry;
-    
-    public static readonly StyledProperty<double> FontSizeProperty =
-        TextElement.FontSizeProperty.AddOwner<MinimizeSymbol>();
-    
-    public static readonly StyledProperty<IBrush?> ForegroundProperty =
-        TextElement.ForegroundProperty.AddOwner<MinimizeSymbol>();
-    
-    public double FontSize
-    {
-        get => GetValue(FontSizeProperty);
-        set => SetValue(FontSizeProperty, value);
-    }
-    
-    public IBrush? Foreground
-    {
-        get => GetValue(ForegroundProperty);
-        set => SetValue(ForegroundProperty, value);
-    }
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-
-        if (change.Property != FontSizeProperty) 
-            return;
-        
-        double thickness = Math.Max(FontSize * 0.1, 2);
-        double radius = FontSize * 0.35;
-
-        _minusGeometry = new RectangleGeometry(new Rect(
-            -radius, -thickness/2, 
-            radius * 2, thickness
-            ), thickness/2, thickness/2);
-    }
-
-    protected override Size MeasureOverride(Size availableSize)
-    {
-        return new Size(FontSize, FontSize);
-    }
-
-    public override void Render(DrawingContext context)
-    {
-        var center = Bounds.WithX(0).WithY(0).Center;
-
-        using (context.PushTransform(Matrix.CreateTranslation(center)))
-        {
-            using (context.PushOpacity(IsPointerOver ? 1 : 0.6))
-            {
-                context.DrawGeometry(Foreground, null, _minusGeometry!);
-            }
         }
     }
 }

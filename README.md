@@ -14,9 +14,9 @@ This should in theory also make this library future proof.
 
 ## Public Controls
 
-- `DockingHost` to host the layout
+- `DockSpacePanel` to host the layout
 - `SplitPanel` to host the docking slots (allows for resizing)
-- `DockingTabControl` to hold the (docked) tabs (allows for rearranging)
+- `RearrangeTabControl` to hold the (docked) tabs (allows for rearranging)
 
 ## Features
 - Rearrange Tabs
@@ -28,8 +28,8 @@ This should in theory also make this library future proof.
 - Drag Tab to the border of the docking host ''
 
 ## Getting started
-Add DockingHost, Design a Layout using SplitPanels (make sure to set Fractions and Orientation) and fill the slots with Children of type SplitPanel or DockingTabControl.  
-*Technically you can use any Control but only DockingTabControl supports dragging tabs out*
+Add a `DockSpacePanel`, Design a Layout using `SplitPanel`s (make sure to set Fractions and Orientation) and fill the slots with Children of type `SplitPanel` or `DockingTabControl`.  
+*Technically you can use any `Control` but only `RearrangeTabControl` supports dragging tabs out*
 
 ### An Example
 
@@ -44,23 +44,23 @@ MainWindow.axaml
         Title="Example"
         xmlns:up="clr-namespace:Avalonia.UpDock.Controls;assembly=Avalonia.UpDock">
 
-    <up:DockingHost>
+    <up:DockSpacePanel>
         <up:SplitPanel Fractions="1, 1" Orientation="Horizontal">
-            <up:DockingTabControl>
+            <up:RearrangeTabControl>
                 <TabItem Header="Tab A">
                     <TextBlock Margin="5">Content</TextBlock>
                 </TabItem>
-            </up:DockingTabControl>
-            <up:DockingTabControl>
+            </up:RearrangeTabControl>
+            <up:RearrangeTabControl>
                 <TabItem Header="Tab B">
                     <TextBlock Margin="5">More content</TextBlock>
                 </TabItem>
                 <TabItem Header="Tab C">
                     <TextBlock Margin="5">Even more content</TextBlock>
                 </TabItem>
-            </up:DockingTabControl>
+            </up:RearrangeTabControl>
         </up:SplitPanel>
-    </up:DockingHost>
+    </up:DockSpacePanel>
 </Window>
 ```
 Should look something like this:
