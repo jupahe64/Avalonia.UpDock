@@ -5,7 +5,6 @@ using Avalonia.Media;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using LIST_MODIFY_HANDLER = System.Collections.Specialized.NotifyCollectionChangedEventHandler;
@@ -756,6 +755,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
         {
             _dsp = dsp;
             Background = null;
+            Topmost = true;
         }
 
         public override void Render(DrawingContext ctx)
