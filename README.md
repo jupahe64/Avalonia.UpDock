@@ -1,31 +1,34 @@
 # What's UpDock?
 nothing much...
 
-*...except the best Docking library you'll ever use or alteast it will be.*
+*...except the best Docking library you'll ever use.*
 
-![Avalonia UpDock Testing_Screenshot](https://github.com/jupahe64/Avalonia.UpDock/assets/33004544/30118643-158c-4c6e-bb1f-5409aa363873)
 
+**Look and feel is heavily inspired by the [docking branch of Dear ImGUI](https://github.com/ocornut/imgui/tree/docking)**
+![Avalonia.UpDock Testing_Screenshot](https://github.com/user-attachments/assets/c0318c4f-f5ca-4d3d-910f-925d386e150d)
 
 
 ## Why?
-Because the two other Dock libraries that exists either have on outdated style or just don't work reliably.  
-This library aims to work with any style, theme and whatnot by simply using or slightly extending the functionality of existing controls and hocking into a few UI events and ItemTemplates.  
-This should in theory also make this library future proof.
+Because the two other Dock libraries that exist either have on outdated style or just don't work reliably.  
+This library aims to work with any style, theme and whatnot by simply using or slightly extending
+the functionality of existing controls and hooking into a few UI events and ItemTemplates.  
+This should in theory also make this library future-proof.
 
 ## Public Controls
 
-- `DockSpacePanel` to host the layout
-- `SplitPanel` to host the docking slots (allows for resizing)
-- `RearrangeTabControl` to hold the (docked) tabs (allows for rearranging)
+- `DockSpacePanel` hosts the regular dock slots and acts as a root of the dock tree
+- `SplitPanel` hosts the split dock slots (they resize based on percentage)
+- `RearrangeTabControl` holds the (docked) tabs (allows for rearranging and dragging out tabs)
+- `ClosableTabItem` a drop in replacement for `TabItem`s to make the closable
 
 ## Features
 - Rearrange Tabs
 - Close Tabs
 - Drag Tab out of TabControl to create a new floating window
-- Drag Tab into another TabControl, that's a descendant of the same DockingHost, to add it as a tab
-- Drag Tab into another Control '' to create a new split and "Dock" it there
-- Drag Tab into another Control '' to truly Dock it there and push the other control(s) aside
-- Drag Tab to the border of the docking host ''
+- Drag Tab into another `TabControl`, that's a descendant of the same `DockSpacePanel`, to add it as a tab
+- Drag Tab into another Control to create a new split and "Dock" it there
+- Drag Tab into another Control to truly Dock it there and push the other control(s) aside
+- Drag Tab to the border of the docking host
 
 ## Getting started
 Add a `DockSpacePanel`, Design a Layout using `SplitPanel`s (make sure to set Fractions and Orientation) and fill the slots with Children of type `SplitPanel` or `DockingTabControl`.  
@@ -33,7 +36,7 @@ Add a `DockSpacePanel`, Design a Layout using `SplitPanel`s (make sure to set Fr
 
 ### An Example
 
-MainWindow.axaml
+ExampleWindow.axaml
 ```xml
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -55,13 +58,13 @@ MainWindow.axaml
                 <TabItem Header="Tab B">
                     <TextBlock Margin="5">More content</TextBlock>
                 </TabItem>
-                <TabItem Header="Tab C">
+                <up:ClosableTabItem Header="Tab C[losable]">
                     <TextBlock Margin="5">Even more content</TextBlock>
-                </TabItem>
+                </up:ClosableTabItem>
             </up:RearrangeTabControl>
         </up:SplitPanel>
     </up:DockSpacePanel>
 </Window>
 ```
 Should look something like this:
-![Avalonia UpDock_Example_Screenshot](https://github.com/jupahe64/Avalonia.UpDock/assets/33004544/c5a7acf8-10d6-4c21-8048-4cf96ccd9a7b)
+![Avalonia UpDock_Example_Screenshot](https://github.com/user-attachments/assets/b1e78e02-c9fb-4236-8588-496e508bdd8c)
