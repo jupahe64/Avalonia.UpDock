@@ -56,10 +56,10 @@ public class SplitFractions(params int[] fractions)
 
     public static SplitFractions Parse(string s)
     {
-        var tokenizer = new StringTokenizer(s);
-
         List<int> fractions = [];
-        while(tokenizer.TryReadString(out var fractionStr))
+        foreach (var fractionStr in s.Split(
+                     [',', ' ', '\t', '\r', '\n'],
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             fractions.Add(int.Parse(fractionStr));
         }

@@ -19,8 +19,15 @@
 	<DockPanel>
 		<Menu DockPanel.Dock="Top">
 			<MenuItem Header="File">
-
+				<MenuItem Header="New" />
+				<MenuItem Header="Open" />
+				<MenuItem Header="Save" />
 			</MenuItem>
+			<MenuItem Header="Edit">
+				<MenuItem Header="Undo" />
+				<MenuItem Header="Redo" />
+			</MenuItem>
+			<MenuItem Header="Help" />
 		</Menu>
 		<up:DockSpacePanel>
 			<up:RearrangeTabControl DockPanel.Dock="Bottom" Height="200">

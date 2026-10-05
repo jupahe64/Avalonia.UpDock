@@ -28,6 +28,7 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
     private readonly Size _contentSize;
     private readonly HookedTabControl _tabControl;
     private readonly Button _minimizeBtn;
+    private readonly Button _closeBtn;
 
     private DragInfo? _dragInfo = null;
 
@@ -36,11 +37,6 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
 
     TabItem IDraggedOutTabHolder.RetrieveTabItem()
     {
-        _tabItem.PointerPressed -= TabItem_PointerPressed;
-        _tabItem.PointerMoved -= TabItem_PointerMoved;
-        _tabItem.PointerReleased -= TabItem_PointerReleased;
-        _tabItem.PointerCaptureLost -= TabItem_PointerCaptureLost;
-
         _tabControl.Items.Clear();
 
         if (_tabItem is ClosableTabItem closable)
@@ -62,11 +58,6 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
         
         _tabItem = tabItem;
         _contentSize = contentSize;
-        _tabItem.PointerPressed += TabItem_PointerPressed;
-        _tabItem.PointerMoved += TabItem_PointerMoved;
-        _tabItem.PointerReleased += TabItem_PointerReleased;
-        _tabItem.PointerCaptureLost += TabItem_PointerCaptureLost;
-
         if (_tabItem is ClosableTabItem closable)
             closable.Closed += TabItem_Closed;
 
@@ -105,6 +96,13 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
                             (sizeDummy = new TextBlock
                             {
                                 [!FontSizeProperty] = tabItem[!FontSizeProperty]
+                            }),
+                            (_closeBtn = new Button
+                            {
+                                Content = "X",
+                                MinHeight = 0,
+                                Padding = new Thickness(4, 0),
+                                IsVisible = tabItem is ClosableTabItem
                             })
                         },
                         [!MarginProperty] = sizeDummy.GetObservable(BoundsProperty)
@@ -160,6 +158,7 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
         _tabControl.LayoutUpdated += TabControl_LayoutUpdated;
         _tabControl.Padding = new Thickness(0);
         _minimizeBtn.Click += MinimizeBtn_Click;
+        _closeBtn.Click += CloseBtn_Click;
     }
 
     protected override void OnClosed(EventArgs e)
@@ -167,6 +166,7 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
         base.OnClosed(e);
         _tabBarDragHandler.UnRegister();
         _minimizeBtn.Click -= MinimizeBtn_Click;
+        _closeBtn.Click -= CloseBtn_Click;
     }
 
     private class TabBarDragHandler
@@ -182,6 +182,7 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
             _tabControl.PointerPressed += TabControl_PointerPressed;
             _tabControl.PointerMoved += TabControl_PointerMoved;
             _tabControl.PointerReleased += TabControl_PointerReleased;
+            _tabControl.PointerCaptureLost += TabControl_PointerCaptureLost;
         }
 
         public void UnRegister()
@@ -189,10 +190,10 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
             _tabControl.PointerPressed -= TabControl_PointerPressed;
             _tabControl.PointerMoved -= TabControl_PointerMoved;
             _tabControl.PointerReleased -= TabControl_PointerReleased;
+            _tabControl.PointerCaptureLost -= TabControl_PointerCaptureLost;
         }
         
         private bool _isDragging;
-        private PixelPoint _previousPoint;
 
         private void TabControl_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
@@ -203,21 +204,26 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
                 return;
             
             _isDragging = true;
-            _previousPoint = _dockableTabWindow.PointToScreen(e.GetPosition(_dockableTabWindow));
+            _dockableTabWindow.OnDragStart(e);
         }
 
         private void TabControl_PointerMoved(object? sender, PointerEventArgs e)
         {
             if (!_isDragging)
                 return;
-            var currentPoint = _dockableTabWindow.PointToScreen(e.GetPosition(_dockableTabWindow));
-            _dockableTabWindow.Position += currentPoint - _previousPoint;
-            _previousPoint = currentPoint;
+            _dockableTabWindow.OnDragging(e);
         }
 
         private void TabControl_PointerReleased(object? sender, PointerReleasedEventArgs e)
         {
             _isDragging = false;
+            _dockableTabWindow.OnDragEnd(e);
+        }
+
+        private void TabControl_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            _isDragging = false;
+            _dockableTabWindow.OnCaptureLost(e);
         }
     }
 
@@ -284,35 +290,23 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
         Close();
     }
 
-    private void TabItem_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
-            return;
-        OnDragStart(e);
-    }
-
-    private void TabItem_PointerMoved(object? sender, PointerEventArgs e) => OnDragging(e);
-    private void TabItem_PointerReleased(object? sender, PointerEventArgs e)
-    {
-        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed)
-            return;
-        OnDragEnd(e);
-    }
-
-    private void TabItem_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e) => OnCaptureLost(e);
-
     private void MinimizeBtn_Click(object? sender, RoutedEventArgs e)
     {
         WindowState = WindowState.Minimized;
+    }
+
+    private void CloseBtn_Click(object? sender, RoutedEventArgs e)
+    {
+        Close();
     }
     
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property != SystemDecorationsProperty || _tabBackground == null)
+        if (change.Property != WindowDecorationsProperty || _tabBackground == null)
             return;
 
-        if (SystemDecorations == SystemDecorations.None)
+        if (WindowDecorations == Avalonia.Controls.WindowDecorations.None)
         {
             Background = null;
         }
@@ -347,20 +341,24 @@ internal class DockableTabWindow : Window, IDraggedOutTabHolder
     public void OnDragStart(PointerEventArgs e)
     {
         ExtendClientAreaToDecorationsHint = false;
-        SystemDecorations = SystemDecorations.None;
+        WindowDecorations = Avalonia.Controls.WindowDecorations.None;
         _minimizeBtn.IsVisible = false;
+        _closeBtn.IsVisible = false;
         _dragInfo = new(e.GetPosition(this));
         _lastPointerEvent = e;
     }
 
     public void OnDragEnd(PointerEventArgs e)
     {
+        if (_dragInfo == null)
+            return;
+
         _dragInfo = null;
         DragEnd?.Invoke(this, e);
         ExtendClientAreaToDecorationsHint = true;
-        ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome;
         _minimizeBtn.IsVisible = true;
-        SystemDecorations = SystemDecorations.BorderOnly;
+        _closeBtn.IsVisible = _tabItem is ClosableTabItem;
+        WindowDecorations = Avalonia.Controls.WindowDecorations.BorderOnly;
         _lastPointerEvent = null;
     }
 

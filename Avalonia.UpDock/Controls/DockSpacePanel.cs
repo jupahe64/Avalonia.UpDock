@@ -517,11 +517,21 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
     //helper function
     private Window GetHostWindow()
     {
-        if (VisualRoot is Window window)
+        if (TopLevel.GetTopLevel(this) is Window window)
             return window;
 
         throw new InvalidOperationException(
             $"This {nameof(DockSpacePanel)} is not part of a Window");
+    }
+
+    private Point GetDockSpacePointerPosition(PointerEventArgs e, DockableTabWindow draggedTabWindow)
+    {
+        var hostWindow = GetHostWindow();
+        var screenPosition = draggedTabWindow.PointToScreen(e.GetPosition(draggedTabWindow));
+        var hostWindowPosition = hostWindow.PointToClient(screenPosition);
+
+        return hostWindow.TranslatePoint(hostWindowPosition, this)
+            ?? throw new InvalidOperationException("Unable to convert the pointer position to the docking area");
     }
 
     /// <summary>
@@ -537,7 +547,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
         {
             Width = tabControl.Bounds.Width,
             Height = tabControl.Bounds.Height,
-            SystemDecorations = SystemDecorations.None,
+            WindowDecorations = Avalonia.Controls.WindowDecorations.None,
             Position = hostWindow.PointToScreen(e.GetPosition(hostWindow) + offset),
             DataContext = hostWindow.DataContext
         };
@@ -579,6 +589,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
     private void DockTabWindow_Dragging(object? sender, PointerEventArgs e)
     {
         _draggedDockTabWindow = (DockableTabWindow)sender!;
+        var position = GetDockSpacePointerPosition(e, _draggedDockTabWindow);
 
         if (_overlay == null)
         {
@@ -589,7 +600,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
             });
             _overlayWindow = new DockingOverlayWindow(this)
             {
-                SystemDecorations = SystemDecorations.None,
+                WindowDecorations = Avalonia.Controls.WindowDecorations.None,
                 Background = null,
                 Opacity = 0.5
             };
@@ -607,7 +618,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
             _overlay.UpdateAreas();
         }
 
-        _overlay.DragOver(e.GetPosition(this), _draggedDockTabWindow);
+        _overlay.DragOver(position, _draggedDockTabWindow);
     }
     
     protected override void ArrangeCore(Rect finalRect)
@@ -659,7 +670,8 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
     /// </summary>
     private void DockTabWindow_DragEnd(object? sender, PointerEventArgs e)
     {
-        _overlay?.DropTab(e.GetPosition(this), (DockableTabWindow)sender!); //Triggers Overlay_TabDropped
+        var draggedTabWindow = (DockableTabWindow)sender!;
+        _overlay?.DropTab(GetDockSpacePointerPosition(e, draggedTabWindow), draggedTabWindow);
         _overlay = null;
         _overlayWindow?.Close();
         _overlayWindow = null;
@@ -755,6 +767,7 @@ public class DockSpacePanel : ResizeDockPanel, IDockSpaceTree<DockSpacePanel.Doc
         {
             _dsp = dsp;
             Background = null;
+            ShowActivated = false;
             Topmost = true;
         }
 
